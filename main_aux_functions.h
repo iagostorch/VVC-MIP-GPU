@@ -19,7 +19,7 @@ void probe_error(cl_int error, char* message){
 }
 
 // Read data from memory objects into arrays
-void readMemobjsIntoArray(cl_command_queue command_queue, int numPredictions, int blockSize, cl_mem return_prediction_memObj, cl_mem return_SATD_memObj, cl_mem return_SAD_memObj, short *return_prediction, long *return_SATD, long *return_SAD){
+void readMemobjsIntoArray(cl_command_queue command_queue, int numPredictions, int blockSize, cl_mem return_prediction_memObj, cl_mem return_SATD_memObj, cl_mem return_SAD_memObj, short *return_prediction, long *return_SATD, long *return_SAD, cl_mem debug_memObj, short* debug_data){
     int error;
     double nanoSeconds = 0.0;
     cl_ulong read_time_start, read_time_end;
@@ -62,6 +62,18 @@ void readMemobjsIntoArray(cl_command_queue command_queue, int numPredictions, in
     probe_error(error, (char*)"Error reading returned memory objects into malloc'd arrays\n");
 
     readTime = nanoSeconds;
+
+    error =  clEnqueueReadBuffer(command_queue, debug_memObj, CL_TRUE, 0, 
+        12*64*4 * sizeof(cl_short), debug_data, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return SAD\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;
+    probe_error(error, (char*)"Error reading returned memory objects into malloc'd arrays\n");
 }
 
 void reportTimingResults(){

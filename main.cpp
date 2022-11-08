@@ -195,7 +195,7 @@ int main(int argc, char *argv[]) {
 
     // TODO: This should be computed based on the frame resolution
     const int nCtus = frameHeight==1080 ? 135 : 510; //135 or 510 for 1080p and 2160p  ||  1080p videos have 120 entire CTUs plus 15 partial CTUs || 4k videos have 480 entire CTUs plus 30 partial CTUs
-    const int itemsPerWG = 256;  // Each workgroup has 256 workitems
+    const int itemsPerWG = 64;  // Each workgroup has 256 workitems
     int nWG; // All CU sizes inside all CTUs are being processed simultaneously by distinct WGs
 
     // Read the input data
@@ -358,7 +358,7 @@ int main(int argc, char *argv[]) {
     long *return_SATD, *return_SAD;
 
     // Debug information returned by kernel
-    long *debug_data;
+    short *debug_data;
 
 
     // TODO: Correct to the proper number of WGs and CTUs
@@ -372,7 +372,7 @@ int main(int argc, char *argv[]) {
     return_SATD = (long*) malloc(sizeof(long) * TOTAL_PREDICTION_MODES);
     return_SAD = (long*) malloc(sizeof(long) * TOTAL_PREDICTION_MODES);
     // Debug information returned by kernel
-    debug_data = (long*)  malloc(sizeof(long)  * nWG*itemsPerWG*4);
+    debug_data = (short*)  malloc(sizeof(short)  * nWG*itemsPerWG*4);
 
     return_predictedBlock_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
             BLOCK_SIZE * TOTAL_PREDICTION_MODES * sizeof(short), NULL, &error_1);
@@ -385,7 +385,7 @@ int main(int argc, char *argv[]) {
 
     // These memory objects are used to store intermediate data and debugging information from the kernel
     debug_mem_obj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            nWG*itemsPerWG*4 * sizeof(cl_long), NULL, &error_1);  
+            nWG*itemsPerWG*4 * sizeof(cl_short), NULL, &error_1);  
 
     error = error_1;
     probe_error(error,(char*)"Error creating memory object for debugging information\n");
@@ -413,6 +413,7 @@ int main(int argc, char *argv[]) {
     error_1 |= clSetKernelArg(kernel, 3, sizeof(cl_mem), (void *)&return_predictedBlock_memObj);
     error_1 |= clSetKernelArg(kernel, 4, sizeof(cl_mem), (void *)&return_SATD_memObj);
     error_1 |= clSetKernelArg(kernel, 5, sizeof(cl_mem), (void *)&return_SAD_memObj);   
+    error_1 |= clSetKernelArg(kernel, 6, sizeof(cl_mem), (void *)&debug_mem_obj);   
     probe_error(error_1, (char*)"Error setting arguments for the kernel\n");
 
     // Execute the OpenCL kernel on the list
@@ -438,12 +439,41 @@ int main(int argc, char *argv[]) {
     nanoSeconds = 0;
 
     // Read affine results from memory objects into host arrays
-    readMemobjsIntoArray(command_queue, TOTAL_PREDICTION_MODES, BLOCK_SIZE, return_predictedBlock_memObj, return_SATD_memObj, return_SAD_memObj, return_predictedBlock, return_SATD, return_SAD);
+    readMemobjsIntoArray(command_queue, TOTAL_PREDICTION_MODES, BLOCK_SIZE, return_predictedBlock_memObj, return_SATD_memObj, return_SAD_memObj, return_predictedBlock, return_SATD, return_SAD, debug_mem_obj, debug_data);
     reportTimingResults();
 
-    for(int i=0; i<256; i++){
-        printf("[%d] = %d\n", i, return_predictedBlock[i]);
+    // for(int mode=0; mode<TOTAL_PREDICTION_MODES; mode++){
+    //     printf("Predição reduzida pro modo %d\n", mode);
+    //     for(int i=0; i<8; i++){
+    //         for(int j=0; j<8; j++){
+    //             printf("%d,", return_predictedBlock[mode*64*64 + i*8 + j]);
+    //         }
+    //         printf("\n");
+    //     }
+    //     printf("\n");
+    // }
+    
+    for(int mode=0; mode<TOTAL_PREDICTION_MODES; mode++){
+        printf("Predição reduzida pro modo %d (MODE %d Transp %d)\n\n", mode, mode%6, mode/6);
+        for(int i=0; i<8; i++){
+            for(int j=0; j<8; j++){
+                printf("%d,", return_predictedBlock[mode*BLOCK_SIZE + i*8+j]);
+            }
+            printf("\n");
+        }
+        printf("\n-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
     }
+
+
+    // printf("Reduced boundaries pro modo %d\n", mode);
+    // for(int i=0; i<8; i++){
+    //     printf("%d,", debug_data[i]);
+    // }
+    // printf("\n");
+
+    // for(int i=0; i<256; i++){
+    //     printf("[%d] = %d\n", i, return_predictedBlock[i]);
+    // }
 
 
     // -----------------------------------------------------------------
