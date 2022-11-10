@@ -441,23 +441,12 @@ int main(int argc, char *argv[]) {
     // Read affine results from memory objects into host arrays
     readMemobjsIntoArray(command_queue, TOTAL_PREDICTION_MODES, BLOCK_SIZE, return_predictedBlock_memObj, return_SATD_memObj, return_SAD_memObj, return_predictedBlock, return_SATD, return_SAD, debug_mem_obj, debug_data);
     reportTimingResults();
-
-    // for(int mode=0; mode<TOTAL_PREDICTION_MODES; mode++){
-    //     printf("Predição reduzida pro modo %d\n", mode);
-    //     for(int i=0; i<8; i++){
-    //         for(int j=0; j<8; j++){
-    //             printf("%d,", return_predictedBlock[mode*64*64 + i*8 + j]);
-    //         }
-    //         printf("\n");
-    //     }
-    //     printf("\n");
-    // }
     
     for(int mode=0; mode<TOTAL_PREDICTION_MODES; mode++){
-        printf("Predição reduzida pro modo %d (MODE %d Transp %d)\n\n", mode, mode%6, mode/6);
-        for(int i=0; i<8; i++){
-            for(int j=0; j<8; j++){
-                printf("%d,", return_predictedBlock[mode*BLOCK_SIZE + i*8+j]);
+        printf("Final prediction (upsampled) of mode %d (MODE %d Transp %d)\n\n", mode, mode%6, mode/6);
+        for(int i=0; i<64; i++){
+            for(int j=0; j<64; j++){
+                printf("%d,", return_predictedBlock[mode*BLOCK_SIZE + i*64+j]);
             }
             printf("\n");
         }
@@ -465,15 +454,11 @@ int main(int argc, char *argv[]) {
     }
 
 
-    // printf("Reduced boundaries pro modo %d\n", mode);
+    // printf("Reduced boundaries for mode %d\n", mode);
     // for(int i=0; i<8; i++){
     //     printf("%d,", debug_data[i]);
     // }
     // printf("\n");
-
-    // for(int i=0; i<256; i++){
-    //     printf("[%d] = %d\n", i, return_predictedBlock[i]);
-    // }
 
 
     // -----------------------------------------------------------------

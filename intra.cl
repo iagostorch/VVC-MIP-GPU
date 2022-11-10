@@ -6,8 +6,8 @@
 
 #endif
 
-#include "constants.cl"
 #include "mip_matrix.cl"
+#include "kernel_aux_functions.cl"
 
 // The prediction is computed in void MatrixIntraPrediction::predBlock
 __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSamples_memObj,const int TOTAL_PREDICTION_MODES,  __global short *predictedBlock, __global long *SATD, __global long *SAD, __global short *debug){
@@ -97,13 +97,14 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
     if(lid<reducedBoundarysize){
         // Subsample top boundary
         int temp = 0;
-        for(int t=0; t<downsamplingFactor; t++)
+        for(int t=0; t<downsamplingFactor; t++){
             temp += refT[lid*downsamplingFactor + t];
-
+        }
+        
         redT[lid] = (temp + roundingOffset) >> log2DownsamplingFactor;
         
         //* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
-        if(wg==0){
+        if(wg==targetWg){
             printf("Summed values top [%d] = %d\n", lid, temp);
             printf("Processed values top [%d] = %d\n", lid, (temp + roundingOffset) >> log2DownsamplingFactor);
         }
@@ -117,7 +118,7 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
         redL[lid] = (temp + roundingOffset) >> log2DownsamplingFactor;
         
         //* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
-        if(wg==0){
+        if(wg==targetWg){
             printf("Summed values left [%d] = %d\n", lid, temp);
             printf("Processed values left [%d] = %d\n", lid, (temp + roundingOffset) >> log2DownsamplingFactor);
         }
@@ -153,7 +154,7 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
     
 
     //* TRACE REDUCED BOUNDARIES
-    if(wg==0 && lid==0){
+    if(wg==targetWg && lid==targetLid){
         printf("Reduced TL\n");
         for(int i=0; i<8; i++){
             printf("%d,", redTL[i]);
@@ -193,7 +194,7 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
 
     // TODO: Correct this when supporting more block sizes.
     // Correct value is upsamplingHorizontal>1 || upsamplingVertical>1;
-    int needUpsampling = 0; 
+    int needUpsampling = 1; 
     
     int mode = wg%6;
     short isTransposed = wg>=6;
@@ -230,18 +231,28 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
     predSample = (predSample >> MIP_SHIFT_MATRIX) + select(inputOffset, inputOffsetTransp, isTransposed);
     predSample = clamp(predSample, 0, (1<<10)-1);
 
-    localPredBuffer[yPos*REDUCED_PRED_SIZE_Id2 + xPos] = predSample;
+    // If the current mode is transposed, the workitems access the local buffer in a strided manner and the global memory in a coalesced manner
+    // If it is not transposed, both global and local memory are accessed in a coalesced manner
+    short xPosTranspCompliant = select(xPos, yPos, isTransposed);
+    short yPosTranspCompliant = select(yPos, xPos, isTransposed);
+
+    localPredBuffer[yPosTranspCompliant*REDUCED_PRED_SIZE_Id2 + xPosTranspCompliant] = predSample;
 
     // In case the current mode is transposed, it is necessary to copy the predicted samples from local to global memory in a non-efficient fashion
     // By synchronizing all workitems, we can change what items access what samples to make them access global memory in a more efficient manner
     barrier(CLK_LOCAL_MEM_FENCE);
     int globalStride = wg*64*64;
     
-    // If the current mode is transposed, the workitems access the local buffer in a strided manner and the global memory in a coalesced manner
-    // If it is not transposed, both global and local memory are accessed in a coalesced manner
-    short xPosTranspCompliant = select(xPos, yPos, isTransposed);
-    short yPosTranspCompliant = select(yPos, xPos, isTransposed);
-    
-    predictedBlock[globalStride + yPos*REDUCED_PRED_SIZE_Id2 + xPos] = localPredBuffer[yPosTranspCompliant*REDUCED_PRED_SIZE_Id2 + xPosTranspCompliant];
+    if(wg==targetWg && lid==targetLid){
+        printf("Reduced prediction\n");
+        for(int i=0; i<8; i++){
+            for(int j=0; j<8; j++){
+                printf("%d,", localPredBuffer[i*8+j]);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
 
+    upsamplePrediction_SizeId2(localPredBuffer, upsamplingHorizontal, upsamplingVertical, predictedBlock, refT, refL);    
 }
