@@ -44,7 +44,7 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
     int nPasses = (64*64)/wgSize;
     for(int pass=0; pass<nPasses; pass++){
         // TODO: Correct ti support CUs in different positions. For now, the kernel input is a single CU and its references
-        int currIdx = pass*64*64 + lid;
+        int currIdx = pass*wgSize + lid;
         currentCuSamples[currIdx] = currBlock_memObj[currIdx];
     }
 
@@ -103,7 +103,7 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
         
         redT[lid] = (temp + roundingOffset) >> log2DownsamplingFactor;
         
-        //* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
+        /* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
         if(wg==targetWg){
             printf("Summed values top [%d] = %d\n", lid, temp);
             printf("Processed values top [%d] = %d\n", lid, (temp + roundingOffset) >> log2DownsamplingFactor);
@@ -153,7 +153,7 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
     // }
     
 
-    //* TRACE REDUCED BOUNDARIES
+    /* TRACE REDUCED BOUNDARIES
     if(wg==targetWg && lid==targetLid){
         printf("Reduced TL\n");
         for(int i=0; i<8; i++){
@@ -243,6 +243,7 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
     barrier(CLK_LOCAL_MEM_FENCE);
     int globalStride = wg*64*64;
     
+    /*
     if(wg==targetWg && lid==targetLid){
         printf("Reduced prediction\n");
         for(int i=0; i<8; i++){
@@ -253,6 +254,24 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
         }
         printf("\n");
     }
+    //*/
 
+
+    // TODO: We can put the SAD distortion computation inside the upsampling, so each workitem computes the prediction and the collocated SAD together
+    // SATD is more difficult and will require a synchronizarion barrier
     upsamplePrediction_SizeId2(localPredBuffer, upsamplingHorizontal, upsamplingVertical, predictedBlock, refT, refL);    
+
+    __local long int workgroupSad[64];
+    // Each workgroup computes the SAD at a set of locations and return the total value. We must sum them to obtain the CU-level distortion
+    workgroupSad[lid] = sad_64x64(predictedBlock, currentCuSamples);
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+
+    if(lid==0){
+        for(int i=1; i<wgSize; i++){
+            workgroupSad[0] += workgroupSad[i];
+        }
+        SAD[wg] = 2*workgroupSad[0];
+    }
 }

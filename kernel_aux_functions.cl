@@ -2,7 +2,7 @@
 
 int targetGid = -1;
 int targetLid = 0;
-int targetWg = 2;
+int targetWg = -1;
 
 // Based on MatrixIntraPrediction::predictionUpsampling1D
 void upsamplePrediction_SizeId2(const short localPredBuffer[8*8], const int upsamplingHorizontal, const int upsamplingVertical, short *predictedBlock, const short refT[64], const short refL[64]){
@@ -110,3 +110,30 @@ void upsamplePrediction_SizeId2(const short localPredBuffer[8*8], const int upsa
     }
 }
 
+// Each workitem computes the SAD at a set of locations, accumulate, and return to the kernel
+long int sad_64x64(short *predictedBlock, short currentCuSamples[64*64]){
+    int cuWidth = 64;
+    int cuHeight = 64;
+
+    int gid = get_global_id(0);
+    int wg = get_group_id(0);
+    int lid = get_local_id(0);
+    int wgSize = get_local_size(0);
+
+    int nPasses = (64*64)/wgSize;
+
+
+    long int sad=0, temp=0;
+
+    int idx, yPos, xPos;
+
+    for(int pass=0; pass<nPasses; pass++){
+        idx = pass*wgSize + lid;
+        yPos = idx/cuWidth;
+        xPos = idx%cuWidth;
+        temp = abs(predictedBlock[wg*64*64 + yPos*64 + xPos] - currentCuSamples[yPos*64 + xPos]);
+        sad += (long int) temp;
+    }
+    return sad;
+
+}

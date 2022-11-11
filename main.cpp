@@ -444,6 +444,7 @@ int main(int argc, char *argv[]) {
     
     for(int mode=0; mode<TOTAL_PREDICTION_MODES; mode++){
         printf("Final prediction (upsampled) of mode %d (MODE %d Transp %d)\n\n", mode, mode%6, mode/6);
+        printf(" >> SAD = %ld\n", return_SAD[mode]);
         for(int i=0; i<64; i++){
             for(int j=0; j<64; j++){
                 printf("%d,", return_predictedBlock[mode*BLOCK_SIZE + i*64+j]);
