@@ -275,3 +275,292 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
         SAD[wg] = 2*workgroupSad[0];
     }
 }
+
+
+// This kernel is used to fetch the reduced boundaries for all the blocks
+// Each WG will process one CTU composed of a single CU size
+// It works for square blocks with SizeId=2 (64x64, 32x32, 16x16)
+__kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame, const int frameWidth, const int frameHeight, __global short *redT_64x64, __global short *redL_64x64, __global short *redT_32x32, __global short *redL_32x32, __global short *redT_16x16, __global short *redL_16x16){
+
+    int gid = get_global_id(0);
+    int wg = get_group_id(0);
+    int lid = get_local_id(0);
+    int wgSize = get_local_size(0);
+
+    const short ctuColumnsPerFrame = (short) ceil((float)frameWidth/128);
+    const short ctuIdx = wg/NUM_CU_SIZES;
+    const short cuSizeIdx = wg%NUM_CU_SIZES;
+    const short cuWidth = widths[cuSizeIdx];
+    const short cuHeight = heights[cuSizeIdx];
+    const short nCusInCtu = cusPerCtu[cuSizeIdx];
+    const short itemsPerCu = wgSize/nCusInCtu;
+    const short cuColumnsPerCtu = 128/cuWidth;
+    const short cuRowsPerCtu = 128/cuHeight;
+
+    // CTU position inside the frame
+    const short ctuX = 128 * (ctuIdx%ctuColumnsPerFrame);  
+    const short ctuY = 128 * (ctuIdx/ctuColumnsPerFrame);
+
+    __constant short reducedBoundarySize = BOUNDARY_SIZE_Id2;
+    // Each of these hold one row/columns of samples for the entire CTU
+    __local short int refT[128], refL[128]; 
+    // These buffers are used as temporary storage between computing reduced boundaries and moving them into global memory
+    __local short int bufferGlobalRedT[MAX_CUS_PER_CTU*BOUNDARY_SIZE_Id2], bufferGlobalRedL[MAX_CUS_PER_CTU*BOUNDARY_SIZE_Id2];
+
+    // These are used to compute the reduced boundaries
+    short downsamplingFactor;
+    short log2DownsamplingFactor;
+    short roundingOffset;
+
+    // Index for the first sample of the CTU inside the frame
+    const int idxForCtu = ctuY*frameWidth + ctuX; 
+
+    // For MIP, the references are either direcly above or direcly left (no above-right, below-left, or top-right).
+    // References are unavailable only ath the edges of the frame
+
+    const short valueDC = 1 << 9; // Used when there are no available references
+    short cuX, cuY;
+
+    // ----------------------------------------------------
+    //
+    //    START COMPUTING THE REDUCED TOP BOUNDARIES
+    //
+    // ----------------------------------------------------
+
+    downsamplingFactor = cuWidth/reducedBoundarySize;
+    log2DownsamplingFactor = (short) log2((float) downsamplingFactor);
+    roundingOffset = (1 << (log2DownsamplingFactor-1));
+
+    // Point to the row directly above the current CTU
+    int startCurrRow = idxForCtu  - frameWidth; 
+   
+    // Each iteration will create the redT boundary for one row of CUs inside the current CU
+    for(int row=0; row<cuRowsPerCtu; row++){ 
+        // Compute position of the CU this workitem is processing
+        cuY = row*cuHeight;
+        cuX = (lid/cuWidth)*cuWidth;
+        
+        // TODO: This only works if the number of workitems is equal to 128
+        // Depending if there are all, some or no references available, we fetch correct samples or pad them
+        if((ctuY+cuY)>0){ // Most general case, all references available
+            refT[lid] = referenceFrame[startCurrRow + lid]; // At this point, one row of samples is in the shared array. We must reduce it to obtain the redT for each CU
+        }
+        else if((ctuY+cuY)==0 && (ctuX+cuX)==0){ // CU is in the top-left corner of frame, no reference is available. Fill with predefined DC value
+            refT[lid] = valueDC;
+        }
+        else if((ctuY+cuY)==0 && (ctuX+cuX)>0){ // CU is in the top edge of the frame, we use the left samples to pad the top boundaries
+            refT[lid] = referenceFrame[ctuX+cuX-1]; // Sample directly left of the first sample inside the CU is padded to top boundary
+        }
+
+        // Wait until all workitems have fetched the complete boundary into shared array
+        barrier(CLK_LOCAL_MEM_FENCE);
+        
+        /*  TRACE THE COMPLETE TOP BOUNDARY FOR ONE ROW OF CUs
+        if(lid==0 && wg==targetWg){
+            printf("COMPLETE TOP BOUNDARY row %d\n", row);
+            for(int i=0; i<128; i++){
+                printf("%d,", refT[i]);
+            }
+            printf("\n");
+        }
+        //*/
+
+        // Each workitem will compute one sample of reducedBoundary for each CU
+        if(lid<(reducedBoundarySize*cuColumnsPerCtu)){ 
+            // Subsample top boundary
+            int temp = 0;
+            for(int t=0; t<downsamplingFactor; t++){
+                /*
+                if(wg==targetWg && lid==1 && row==0){
+                    printf("refSample,%d\n", refT[lid*downsamplingFactor + t]);
+                }
+                //*/
+                temp += refT[lid*downsamplingFactor + t];
+            }
+            // Save averaged samples into local buffer. The entire buffer is moved into global memory at once in the end of processing
+            bufferGlobalRedT[row*cuColumnsPerCtu*reducedBoundarySize + lid] = (temp + roundingOffset) >> log2DownsamplingFactor;
+            
+            /* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
+            if(wg==targetWg){
+                printf("Summed values top [%d] = %d\n", lid, temp);
+                printf("Processed values top [%d] = %d\n", lid, (temp + roundingOffset) >> log2DownsamplingFactor);
+            }
+            //*
+            
+            // Subsample left boundary
+            temp = 0;
+            for(int t=0; t<downsamplingFactor; t++)
+                temp += refL[lid*downsamplingFactor + t];
+
+            redL[lid] = (temp + roundingOffset) >> log2DownsamplingFactor;
+            
+            //* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
+            if(wg==targetWg){
+                printf("Summed values left [%d] = %d\n", lid, temp);
+                printf("Processed values left [%d] = %d\n", lid, (temp + roundingOffset) >> log2DownsamplingFactor);
+            }
+            //*/     
+        }
+        barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems computed the subsampled values
+        startCurrRow += frameWidth*cuHeight; // Update the beginning of the next row of samples (i.e., top of next row of CUs)
+    }
+
+    /* TRACE REDUCED TOP BOUNDARIES FOR THE ENTIRE CTU
+    if(wg==targetWg && lid==0){
+        printf("All reduced ref T\n");
+        for(int i=0; i<8*8*4; i++){
+            printf("%d,", bufferGlobalRedT[i]);
+        }
+        printf("\n\n");
+    }
+    //*/
+
+    // --------    MOVE REDUCED TOP BOUNDARY FROM LOCAL BUFFER INTO GLOBAL MEMORY
+    // TODO: Review these if/elses if the workgroup size is different from 128 (it may required more or less passes in smaller CU sizes) 
+    if(cuSizeIdx == _64x64){
+        if(lid < 4*2*2){
+            redT_64x64[ctuIdx*nCusInCtu*reducedBoundarySize + lid] = bufferGlobalRedT[lid];        
+        }
+    }
+    else if(cuSizeIdx == _32x32){
+        if(lid < 4*4*4){
+            redT_32x32[ctuIdx*nCusInCtu*reducedBoundarySize + lid] = bufferGlobalRedT[lid];
+        }
+    }
+    else if(cuSizeIdx == _16x16){
+        if(lid < 4*8*8){
+            int nPasses = (4*8*8)/wgSize;
+            for(int pass=0; pass<nPasses; pass++){
+                redT_16x16[ctuIdx*nCusInCtu*reducedBoundarySize + pass*wgSize + lid] = bufferGlobalRedT[lid];
+            }
+        }
+    }
+
+    // --------------------------------------------------
+    //     AT THIS POINT ALL REDUCED TOP SAMPLES ARE IN GLOBAL MEMORY
+    //     WE CAN ADD A SYNCH BARRIER AND REUSE THE bufferGlobalRedT
+    //     FOR THE ELFT BOUNDARY OR SIMPLY IGNORE IT, AVOID THE SYNCH 
+    //     BARRIER AND CREATE ANOTHER BUFFER FOR LEFT BOUNDARY
+    // --------------------------------------------------
+
+
+    // ----------------------------------------------------
+    //
+    //    NOW WE COMPUTE THE REDUCED LEFT BOUNDARIES
+    //
+    // ----------------------------------------------------
+
+    downsamplingFactor = cuHeight/reducedBoundarySize;
+    log2DownsamplingFactor = (short) log2((float) downsamplingFactor);
+    roundingOffset = (1 << (log2DownsamplingFactor-1));
+
+    // Point to the column directly left of the current CTU
+    int startCurrCol = idxForCtu  - 1; 
+    
+    // Each iteration will create the redL boundary for one column of CUs inside the current CU
+    // Since the CU data is stored in raster order and we are processing CUs in different lines (i.e., strided CUs), we must store
+    // The results in strided manner in local buffer
+    for(int col=0; col<cuColumnsPerCtu; col++){ 
+        cuY = (lid/cuHeight)*cuHeight;
+        cuX = col*cuWidth;
+        // TODO: This only works if the number of workitems is equal to 128
+        // TODO: This is VERY INEFFICIENT since the global memory accesses are completely strided
+        // TODO: If we store the referenceFrame in original and transposed manners (i.e., keep the same data in two different global memory objects, one transposed and other not)
+        //       It is possible to coalesce the memory accesses to refL as well. TOP boundaries accessed from ORIGINAL FRAME and LEFT boundaries accessed from TRANSPOSED FRAME
+        if((ctuX+cuX)>0){ // Most general case, all neighboring samples are available
+            refL[lid] = referenceFrame[startCurrCol + lid*frameWidth]; // At this point, one row of samples is in the shared array. We must reduce it to obtain the redL for each CU
+        }
+        else if((ctuY+cuY)==0 && (ctuX+cuX)==0){ // CU is in the top-left corner of frame, no reference is available. Fill with predefined DC value
+            refL[lid] = valueDC;
+        }
+        else if((ctuX+cuX)==0 && (ctuY+cuY)>0){ // CU is in the left edge of the frame, we use the top samples to pad the left boundaries
+            refL[lid] = referenceFrame[(ctuY+cuY-1)*frameWidth];  // Sample directly above of the first sample inside the CU is padded to left boundary
+        }
+
+        // Wait until all workitems have fetched the complete boundary into shared array
+        barrier(CLK_LOCAL_MEM_FENCE);
+        /*   TRACE THE COMPLETE LEFT BOUNDARY FOR ONE COLUMNS OF CUs
+        if(lid==0 && wg==targetWg){
+            printf("COMPLETE LEFT BOUNDARY col %d\n", col);
+            for(int i=0; i<128; i++){
+                printf("%d,", refL[i]);
+            }
+            printf("\n");
+        }
+        //*/
+
+        // Each workitem will compute one sample of reducedBoundary for each CU
+        if(lid<(reducedBoundarySize*cuRowsPerCtu)){ 
+            // Subsample top boundary
+            int temp = 0;
+            int currentRow = lid/reducedBoundarySize;
+            for(int t=0; t<downsamplingFactor; t++){
+                /* 
+                if(wg==targetWg && lid==0 && col==0){
+                    printf("refSample,%d\n", refL[lid*downsamplingFactor + t]);
+                }
+                //*/
+                temp += refL[lid*downsamplingFactor + t];
+            }
+
+            // Although we are computing the reduced boundaries of an entire column at once, the boundaries are stored in shared memory using a CU-raster order
+            // First the boundaries of the top-left CU are store in memory, then the boundaries of the CU to the right and so on. The accesses to shared memory are very strided
+            // The entire buffer is moved into global memory at once in the end of processing
+            bufferGlobalRedL[currentRow*cuColumnsPerCtu*reducedBoundarySize + col*reducedBoundarySize + lid%reducedBoundarySize] = (temp + roundingOffset) >> log2DownsamplingFactor;
+            
+            /* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
+            if(wg==targetWg){
+                printf("Summed values top [%d] = %d\n", lid, temp);
+                printf("Processed values top [%d] = %d\n", lid, (temp + roundingOffset) >> log2DownsamplingFactor);
+            }
+            //*
+            
+            // Subsample left boundary
+            temp = 0;
+            for(int t=0; t<downsamplingFactor; t++)
+                temp += refL[lid*downsamplingFactor + t];
+
+            redL[lid] = (temp + roundingOffset) >> log2DownsamplingFactor;
+            
+            //* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
+            if(wg==targetWg){
+                printf("Summed values left [%d] = %d\n", lid, temp);
+                printf("Processed values left [%d] = %d\n", lid, (temp + roundingOffset) >> log2DownsamplingFactor);
+            }
+            //*/     
+        }
+        barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems computed the subsampled values
+        startCurrCol += cuWidth; // Update the beginning of the next column  of samples (i.e., left of next column of samples)
+    }
+
+    /* TRACE REDUCED TOP BOUNDARIES FOR THE ENTIRE CTU
+    if(wg==targetWg && lid==0){
+        printf("All reduced ref L\n");
+        for(int i=0; i<4*cuRowsPerCtu*cuColumnsPerCtu; i++){
+            printf("%d,", bufferGlobalRedL[i]);
+        }
+        printf("\n\n");
+    }
+    //*/
+
+    // --------    MOVE REDUCED LEFT BOUNDARY FROM LOCAL BUFFER INTO GLOBAL MEMORY
+    // TODO: Review these if/elses if the workgroup size is different from 128 (it may required more or less passes in smaller CU sizes) 
+    if(cuSizeIdx == _64x64){
+        if(lid < 4*2*2){
+            redL_64x64[ctuIdx*nCusInCtu*reducedBoundarySize + lid] = bufferGlobalRedL[lid];        
+        }
+    }
+    else if(cuSizeIdx == _32x32){
+        if(lid < 4*4*4){
+            redL_32x32[ctuIdx*nCusInCtu*reducedBoundarySize + lid] = bufferGlobalRedL[lid];
+        }
+    }
+    else if(cuSizeIdx == _16x16){
+        if(lid < 4*8*8){
+            int nPasses = (4*8*8)/wgSize;
+            for(int pass=0; pass<nPasses; pass++){
+                redL_16x16[ctuIdx*nCusInCtu*reducedBoundarySize + pass*wgSize + lid] = bufferGlobalRedL[lid];
+            }
+        }
+    }
+}

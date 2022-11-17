@@ -5,6 +5,9 @@
 #include <iostream> 
 #include <sstream> 
 #include <fstream> 
+
+#include "constants.h"
+
 using namespace std;
 
 float writeTime = 0;
@@ -17,6 +20,87 @@ void probe_error(cl_int error, char* message){
         return;
     }
 }
+
+// Read data from memory objects into arrays
+void readMemobjsIntoArray_boundaries(cl_command_queue command_queue, int nCTUs, cl_mem redT_64x64_memObj, cl_mem redL_64x64_memObj, cl_mem redT_32x32_memObj, cl_mem redL_32x32_memObj, cl_mem redT_16x16_memObj, cl_mem redL_16x16_memObj, short *return_redT_64x64, short *return_redL_64x64, short *return_redT_32x32, short *return_redL_32x32, short *return_redT_16x16, short *return_redL_16x16){
+    int error;
+    double nanoSeconds = 0.0;
+    cl_ulong read_time_start, read_time_end;
+    cl_event read_event;
+    
+    error =  clEnqueueReadBuffer(command_queue, redT_64x64_memObj, CL_TRUE, 0, 
+            nCTUs * 4 * cusPerCtu[_64x64] * sizeof(cl_short), return_redT_64x64, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prediction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;
+
+    error =  clEnqueueReadBuffer(command_queue, redL_64x64_memObj, CL_TRUE, 0, 
+        nCTUs * 4 * cusPerCtu[_64x64] * sizeof(cl_short), return_redL_64x64, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prediction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;
+
+    // -----------------------------
+
+    error =  clEnqueueReadBuffer(command_queue, redT_32x32_memObj, CL_TRUE, 0, 
+            nCTUs * 4 * cusPerCtu[_32x32] * sizeof(cl_short), return_redT_32x32, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prediction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;
+
+    error =  clEnqueueReadBuffer(command_queue, redL_32x32_memObj, CL_TRUE, 0, 
+        nCTUs * 4 * cusPerCtu[_32x32] * sizeof(cl_short), return_redL_32x32, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prediction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;
+
+    // -----------------------------
+
+    error =  clEnqueueReadBuffer(command_queue, redT_16x16_memObj, CL_TRUE, 0, 
+            nCTUs * 4 * cusPerCtu[_16x16] * sizeof(cl_short), return_redT_16x16, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prediction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;
+
+    error =  clEnqueueReadBuffer(command_queue, redL_16x16_memObj, CL_TRUE, 0, 
+        nCTUs * 4 * cusPerCtu[_16x16] * sizeof(cl_short), return_redL_16x16, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prediction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;        
+
+    readTime = nanoSeconds;
+}
+
 
 // Read data from memory objects into arrays
 void readMemobjsIntoArray(cl_command_queue command_queue, int numPredictions, int blockSize, cl_mem return_prediction_memObj, cl_mem return_SATD_memObj, cl_mem return_SAD_memObj, short *return_prediction, long *return_SATD, long *return_SAD, cl_mem debug_memObj, short* debug_data){
