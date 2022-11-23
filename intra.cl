@@ -429,9 +429,9 @@ __kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame,
     }
     else if(cuSizeIdx == _16x16){
         if(lid < 4*8*8){
-            int nPasses = (4*8*8)/wgSize;
+            int nPasses = (4*8*8)/wgSize; // nPasses=2 for wgSize=128 and CUs 16x16 aligned
             for(int pass=0; pass<nPasses; pass++){
-                redT_16x16[ctuIdx*nCusInCtu*reducedBoundarySize + pass*wgSize + lid] = bufferGlobalRedT[lid];
+                redT_16x16[ctuIdx*nCusInCtu*reducedBoundarySize + pass*wgSize + lid] = bufferGlobalRedT[pass*wgSize + lid];
             }
         }
     }
@@ -558,9 +558,166 @@ __kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame,
     else if(cuSizeIdx == _16x16){
         if(lid < 4*8*8){
             int nPasses = (4*8*8)/wgSize;
-            for(int pass=0; pass<nPasses; pass++){
-                redL_16x16[ctuIdx*nCusInCtu*reducedBoundarySize + pass*wgSize + lid] = bufferGlobalRedL[lid];
+            for(int pass=0; pass<nPasses; pass++){ // nPasses=2 for wgSize=128 and CUs 16x16 aligned
+                redL_16x16[ctuIdx*nCusInCtu*reducedBoundarySize + pass*wgSize + lid] = bufferGlobalRedL[pass*wgSize + lid];
             }
         }
     }
+}
+
+
+// This kernel is used to obtain the reduced prediction with all prediction modes
+// The prediction of all prediction modes is stored in global memory and returned to the host
+// Each WG will process one CTU composed of a single CU size
+// It works for square blocks with SizeId=2 (64x64, 32x32, 16x16)
+__kernel void MIP_squareSizeId2(__global short *redT_64x64, __global short *redL_64x64, __global short *redT_32x32, __global short *redL_32x32, __global short *redT_16x16, __global short *redL_16x16, __global short *reducedPrediction, const int frameWidth, const int frameHeight){
+    // Variables for indexing work items and work groups
+    int gid = get_global_id(0);
+    int wg = get_group_id(0);
+    int lid = get_local_id(0);
+    int wgSize = get_local_size(0);
+
+    const short ctuIdx = wg/NUM_CU_SIZES;
+    const short cuSizeIdx = wg%NUM_CU_SIZES;
+    const short cuWidth = widths[cuSizeIdx];
+    const short cuHeight = heights[cuSizeIdx];
+    const short nCusInCtu = cusPerCtu[cuSizeIdx];
+
+    const short ctuColumnsPerFrame = (short) ceil((float)frameWidth/128);
+      
+    const short cuColumnsPerCtu = 128/cuWidth;
+    const short cuRowsPerCtu = 128/cuHeight;
+
+    // CTU position inside the frame
+    const short ctuX = 128 * (ctuIdx%ctuColumnsPerFrame);  
+    const short ctuY = 128 * (ctuIdx/ctuColumnsPerFrame);
+
+    int boundaryStrideForCtu = cusPerCtu[cuSizeIdx]*BOUNDARY_SIZE_Id2; // Each CU occupy BOUNDARY_SIZE_Id2 (=4) positions in the reduced boundaries buffers
+    int currCtuBoundariesIdx = ctuIdx * boundaryStrideForCtu;
+
+    // This buffer stores all predicted CUs inside the current CTU, with a single prediction mode
+    // Each CU is processed by 64 workitems, where each workitem conducts the prediction of a single sample
+    // When necessary, each workitem will process more than one CU
+    // After all CUs are predicted with a single prediction mode, the buffer is moved into global memory and the next prediction mode is tested
+    __local short reducedPredictedCtu[MAX_CUS_PER_CTU][(BOUNDARY_SIZE_Id2*2)*(BOUNDARY_SIZE_Id2*2)];
+
+    int totalPredictionModes = PREDICTION_MODES_ID2 + TEST_TRANSPOSED_MODES*PREDICTION_MODES_ID2;
+    // Each 64 workitems process one CU irrespective of the "original size" since the reduced prediciton is 64x64 for all of them
+    const short itemsPerCu = 64;
+    const char sampleInCu = lid%itemsPerCu; // Each workitem processes 1 sample
+    int cusPerPass = wgSize/itemsPerCu;
+    int nPasses = nCusInCtu / cusPerPass;
+    short cuIdxInCtu;
+    int predSample;
+    
+    short8 reducedBoundaries, coefficients;
+    short4 reducedT, reducedL;
+
+    // TODO: Change this for loop to fetch the boundaries a single time for non-transposed and a single time for transposed
+    // Use for(transp = [0,1]){ for(mode = [0,5])}
+    for(int m=0; m<totalPredictionModes; m++){
+        
+        short mode = m%PREDICTION_MODES_ID2;
+        short t = -(m/PREDICTION_MODES_ID2); // -1 because this value is used in select(), and select() only tests the MSB of the value
+        short8 isTransp = (short8) (t,t,t,t,t,t,t,t);
+
+        for(int pass=0; pass<nPasses; pass++){
+            cuIdxInCtu = pass*cusPerPass + floor((float)lid/itemsPerCu);
+            // Fetch the redT and redL samples from global memory
+            if(cuWidth == 64){
+                reducedT = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redT_64x64);
+                reducedL = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redL_64x64);
+            }
+            else if(cuWidth == 32){
+                reducedT = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redT_32x32);
+                reducedL = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redL_32x32);
+            }
+            else if(cuWidth == 16){
+                reducedT = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redT_16x16);
+                reducedL = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redL_16x16);
+            }
+
+            // Create complete boundaries array based on transposed or not-transposed
+            reducedBoundaries = select((short8)(reducedT, reducedL), (short8)(reducedL, reducedT), isTransp);
+
+            short firstVal = reducedBoundaries.s0;
+            // Apply inputOffset to all boundaries except the first, then zero the first. After this the boundaries are ready to be multiplied by the coefficients
+            reducedBoundaries = reducedBoundaries - (short8) (firstVal); //(0, firstVal, firstVal, firstVal, firstVal, firstVal, firstVal, firstVal);
+
+            int offset = reducedBoundaries.s0 + reducedBoundaries.s1 + reducedBoundaries.s2 + reducedBoundaries.s3 + reducedBoundaries.s4 + reducedBoundaries.s5 + reducedBoundaries.s6 + reducedBoundaries.s7;
+            offset = (1 << (MIP_SHIFT_MATRIX - 1)) - MIP_OFFSET_MATRIX * offset;
+
+            coefficients.s0 = 0;
+            coefficients.s1 = mipMatrix16x16[mode][sampleInCu][0];
+            coefficients.s2 = mipMatrix16x16[mode][sampleInCu][1];
+            coefficients.s3 = mipMatrix16x16[mode][sampleInCu][2];
+            coefficients.s4 = mipMatrix16x16[mode][sampleInCu][3];
+            coefficients.s5 = mipMatrix16x16[mode][sampleInCu][4];
+            coefficients.s6 = mipMatrix16x16[mode][sampleInCu][5];
+            coefficients.s7 = mipMatrix16x16[mode][sampleInCu][6];
+
+            // TODO: Use some dot-product or MAC optimization to conduct this multiplication-add
+            predSample =  offset;
+            predSample += coefficients.s1 * reducedBoundaries.s1;
+            predSample += coefficients.s2 * reducedBoundaries.s2;
+            predSample += coefficients.s3 * reducedBoundaries.s3;
+            predSample += coefficients.s4 * reducedBoundaries.s4;
+            predSample += coefficients.s5 * reducedBoundaries.s5;
+            predSample += coefficients.s6 * reducedBoundaries.s6;
+            predSample += coefficients.s7 * reducedBoundaries.s7;
+
+            predSample = (predSample >> MIP_SHIFT_MATRIX) + firstVal;
+            predSample = clamp(predSample, 0, (1<<10)-1);
+
+            reducedPredictedCtu[cuIdxInCtu][sampleInCu] = predSample;
+
+            // Wait until all samples of the CTU are predicted because we will move it into global memory in sequence
+            barrier(CLK_LOCAL_MEM_FENCE);
+
+            /*    TRACE PREDICTION
+            if(1 && lid==(192+32) && cuWidth==64){
+                for(int cu=0; cu<4; cu++){
+                    printf("REDUCED PREDICTION: CTU %d, CU %d, Mode %d\n", ctuIdx, cu, m);
+                    for(int i=0; i<8; i++){
+                        for(int j=0; j<8; j++){
+                            printf("%d,", reducedPredictedCtu[cu][i*8+j]);
+                        }
+                        printf("\n");
+                    }
+                }
+            }
+            barrier(CLK_LOCAL_MEM_FENCE);
+            //*/
+        }
+        // Now we move the prediction from __local into __global memory
+        // This points to the start of current CTU in the reduced prediction global buffer
+        const int currCtuPredictionIdx = ctuIdx*TOTAL_CUS_PER_CTU*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+        int currCuPredictionIdx; // This will point to the start of the current CU in the reduced prediction global buffer (i.e., CTU position + offset)
+        for(int pass=0; pass<nPasses; pass++){
+            cuIdxInCtu = pass*cusPerPass + floor((float)lid/itemsPerCu);
+            // Point to start of this CU size in global buffer
+            currCuPredictionIdx = currCtuPredictionIdx + stridedCusPerCtu[cuSizeIdx]*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+            // Point to start of this CU specifically in global buffer
+            currCuPredictionIdx += cuIdxInCtu*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+            // Point to start of the current mode in global buffer
+            currCuPredictionIdx += m*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2;
+
+            // When the prediction uses transposed modes, the reduced prediction signal must be transposed when moved into global memory
+            // This is used to translate a non-transposed index into a transposed index, and access global memory more efficiently
+            int sampleInTransposedCU; 
+
+            int ntX, ntY, tX, tY;
+            ntX = sampleInCu%REDUCED_PRED_SIZE_Id2;
+            ntY = sampleInCu/REDUCED_PRED_SIZE_Id2;
+            tX = ntY; // Swap non-transposed and transposed X/Y coordinates
+            tY = ntX;
+            // Transform the coordinates into a one-dimensional array for the 8*8=64 reduced prediction block
+            sampleInTransposedCU = tY*REDUCED_PRED_SIZE_Id2 + tX;
+            // In transposed modes, t=-1. This selects between transposed and non-transposed indices with a simple operation
+            int correctedSampleInCu = -1*t*sampleInTransposedCU + (1+t)*sampleInCu;
+
+            reducedPrediction[currCuPredictionIdx + sampleInCu] = reducedPredictedCtu[cuIdxInCtu][correctedSampleInCu];
+            barrier(CLK_LOCAL_MEM_FENCE); // Wait until all predicted samples are moved. The next iteration overwrites the local prediction buffer
+        }
+    } // End of current mode
 }

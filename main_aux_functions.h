@@ -12,6 +12,10 @@ using namespace std;
 
 float writeTime = 0;
 float readTime = 0;
+float readTime_reducedBoundaries = 0;
+float readTime_reducedPrediction = 0;
+float execTime_reducedBoundaries = 0;
+float execTime_reducedPrediction = 0;
 float execTime = 0;
 
 void probe_error(cl_int error, char* message){
@@ -98,7 +102,29 @@ void readMemobjsIntoArray_boundaries(cl_command_queue command_queue, int nCTUs, 
     clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
     nanoSeconds += read_time_end-read_time_start;        
 
-    readTime = nanoSeconds;
+    readTime_reducedBoundaries = nanoSeconds;
+}
+
+
+// Read data from memory objects into arrays
+void readMemobjsIntoArray_reducedPrediction(cl_command_queue command_queue, int nCTUs, int nPredictionModes, cl_mem reducedPredictionSignal_memObj,  short *return_reducedPredictionSignal){
+    int error;
+    double nanoSeconds = 0.0;
+    cl_ulong read_time_start, read_time_end;
+    cl_event read_event;
+    
+    error =  clEnqueueReadBuffer(command_queue, reducedPredictionSignal_memObj, CL_TRUE, 0, 
+            nCTUs * TOTAL_CUS_PER_CTU * 8 * 8 * 12 * sizeof(cl_short), return_reducedPredictionSignal, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prediction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds = read_time_end-read_time_start;
+  
+    readTime_reducedPrediction = nanoSeconds;
 }
 
 
@@ -164,7 +190,9 @@ void reportTimingResults(){
     printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n");
     printf("TIMING RESULTS (nanoseconds)\n");
     printf("Write,%f\n", writeTime);
-    printf("Execution,%f\n", execTime);
-    printf("Read,%f\n", readTime);
+    printf("ReducedBoundaries: Execution,%f\n", execTime_reducedBoundaries);
+    printf("ReducedBoundaries: Read,%f\n", readTime_reducedBoundaries);
+    printf("ReducedPrediction: Execution,%f\n", execTime_reducedPrediction);
+    printf("ReducedPrediction: Read,%f\n", readTime_reducedPrediction);    
     printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n\n");    
 }

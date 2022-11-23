@@ -10,6 +10,11 @@
 
 #define MAX_CUS_PER_CTU 64
 
+#define TOTAL_CUS_PER_CTU 84 // Sum of cusPerCtu for all supported CU sizes
+
+#define PREDICTION_MODES_ID2 6
+#define TEST_TRANSPOSED_MODES 1
+
 __constant unsigned char MIP_SHIFT_MATRIX = 6;
 __constant unsigned char MIP_OFFSET_MATRIX = 32;
 
@@ -37,3 +42,11 @@ const unsigned char cusPerCtu[3] = {
     16,
     64
 };
+
+// This is used as a stride when we must access information from multiple CU sizes in the same buffer
+const unsigned char stridedCusPerCtu[4] = { 
+    0,          // 64x64
+    0+4,        // 32x32
+    0+4+16,     // 16x16
+    0+4+16+64   // TOTAL_CUS_PER_CTU
+   };
