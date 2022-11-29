@@ -280,7 +280,7 @@ __kernel void MIP_64x64(__global short *currBlock_memObj, __global short *refSam
 // This kernel is used to fetch the reduced boundaries for all the blocks
 // Each WG will process one CTU composed of a single CU size
 // It works for square blocks with SizeId=2 (64x64, 32x32, 16x16)
-__kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame, const int frameWidth, const int frameHeight, __global short *redT_64x64, __global short *redL_64x64, __global short *redT_32x32, __global short *redL_32x32, __global short *redT_16x16, __global short *redL_16x16){
+__kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame, const int frameWidth, const int frameHeight, __global short *redT_64x64, __global short *redL_64x64, __global short *redT_32x32, __global short *redL_32x32, __global short *redT_16x16, __global short *redL_16x16, __global short *refT_64x64, __global short *refL_64x64, __global short *refT_32x32, __global short *refL_32x32, __global short *refT_16x16, __global short *refL_16x16){
 
     int gid = get_global_id(0);
     int wg = get_group_id(0);
@@ -306,6 +306,8 @@ __kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame,
     __local short int refT[128], refL[128]; 
     // These buffers are used as temporary storage between computing reduced boundaries and moving them into global memory
     __local short int bufferGlobalRedT[MAX_CUS_PER_CTU*BOUNDARY_SIZE_Id2], bufferGlobalRedL[MAX_CUS_PER_CTU*BOUNDARY_SIZE_Id2];
+
+    __local short int bufferGlobalRefT[16][128], bufferGlobalRefL[16][128];
 
     // These are used to compute the reduced boundaries
     short downsamplingFactor;
@@ -351,7 +353,7 @@ __kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame,
         else if((ctuY+cuY)==0 && (ctuX+cuX)>0){ // CU is in the top edge of the frame, we use the left samples to pad the top boundaries
             refT[lid] = referenceFrame[ctuX+cuX-1]; // Sample directly left of the first sample inside the CU is padded to top boundary
         }
-
+        bufferGlobalRefT[row][lid] = refT[lid];
         // Wait until all workitems have fetched the complete boundary into shared array
         barrier(CLK_LOCAL_MEM_FENCE);
         
@@ -418,13 +420,38 @@ __kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame,
     // --------    MOVE REDUCED TOP BOUNDARY FROM LOCAL BUFFER INTO GLOBAL MEMORY
     // TODO: Review these if/elses if the workgroup size is different from 128 (it may required more or less passes in smaller CU sizes) 
     if(cuSizeIdx == _64x64){
+        // Move reduced boundary into global memory
         if(lid < 4*2*2){
             redT_64x64[ctuIdx*nCusInCtu*reducedBoundarySize + lid] = bufferGlobalRedT[lid];        
+        }
+        // Move complete boundary into global memory
+        if(lid < (cuRowsPerCtu*128)){
+            
+            int nRows = cuRowsPerCtu;
+            int rowsPerPass = wgSize/128;
+            int nPasses = (nRows*128) / wgSize;
+
+            for(int pass=0; pass<nPasses; pass++){
+                int currRow = pass*rowsPerPass + lid/128;
+                refT_64x64[ctuIdx*cuRowsPerCtu*128 + currRow*128 + lid%128] = bufferGlobalRefT[currRow][lid%128];
+            }            
         }
     }
     else if(cuSizeIdx == _32x32){
         if(lid < 4*4*4){
             redT_32x32[ctuIdx*nCusInCtu*reducedBoundarySize + lid] = bufferGlobalRedT[lid];
+        }
+        // Move complete boundary into global memory
+        if(lid < (cuRowsPerCtu*128)){
+            
+            int nRows = cuRowsPerCtu;
+            int rowsPerPass = wgSize/128;
+            int nPasses = (nRows*128) / wgSize;
+
+            for(int pass=0; pass<nPasses; pass++){
+                int currRow = pass*rowsPerPass + lid/128;
+                refT_32x32[ctuIdx*cuRowsPerCtu*128 + currRow*128 + lid%128] = bufferGlobalRefT[currRow][lid%128];
+            }            
         }
     }
     else if(cuSizeIdx == _16x16){
@@ -433,6 +460,18 @@ __kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame,
             for(int pass=0; pass<nPasses; pass++){
                 redT_16x16[ctuIdx*nCusInCtu*reducedBoundarySize + pass*wgSize + lid] = bufferGlobalRedT[pass*wgSize + lid];
             }
+        }
+        // Move complete boundary into global memory
+        if(lid < (cuRowsPerCtu*128)){
+            
+            int nRows = cuRowsPerCtu;
+            int rowsPerPass = wgSize/128;
+            int nPasses = (nRows*128) / wgSize;
+
+            for(int pass=0; pass<nPasses; pass++){
+                int currRow = pass*rowsPerPass + lid/128;
+                refT_16x16[ctuIdx*cuRowsPerCtu*128 + currRow*128 + lid%128] = bufferGlobalRefT[currRow][lid%128];
+            }            
         }
     }
 
@@ -476,6 +515,7 @@ __kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame,
         else if((ctuX+cuX)==0 && (ctuY+cuY)>0){ // CU is in the left edge of the frame, we use the top samples to pad the left boundaries
             refL[lid] = referenceFrame[(ctuY+cuY-1)*frameWidth];  // Sample directly above of the first sample inside the CU is padded to left boundary
         }
+        bufferGlobalRefL[col][lid] = refL[lid];
 
         // Wait until all workitems have fetched the complete boundary into shared array
         barrier(CLK_LOCAL_MEM_FENCE);
@@ -549,10 +589,54 @@ __kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame,
         if(lid < 4*2*2){
             redL_64x64[ctuIdx*nCusInCtu*reducedBoundarySize + lid] = bufferGlobalRedL[lid];        
         }
+        // Move complete boundary into global memory
+        if(lid < (cuColumnsPerCtu*128)){
+            
+            int nColumns = cuColumnsPerCtu;
+            int nRows = cuRowsPerCtu;
+
+            int columnsPerPass = wgSize/cuHeight;
+            int samplesPerRow = cuHeight*cuColumnsPerCtu; // Sum all left boundaries of CUs in the same CU row
+
+            int nPasses = (nColumns*128) / wgSize;
+
+            int currCuCol, currCuRow, currSample;
+
+            for(int pass=0; pass<nPasses; pass++){
+                int stride = pass*wgSize + lid;
+                currCuRow = stride / samplesPerRow;
+                currCuCol = (stride/cuHeight) % cuColumnsPerCtu;
+                currSample = stride % cuHeight;
+                // Left boundaries are stored in global memory in CU-raster order. First the boundaries of CU_0, then CU_1, then CU_2, ... Since CUs are upsampled in raster order, this order improves the memory accesses
+                refL_64x64[ctuIdx*cuColumnsPerCtu*128 + currCuRow*cuColumnsPerCtu*cuHeight + currCuCol*cuHeight + currSample] = bufferGlobalRefL[currCuCol][currCuRow*cuHeight + currSample];
+            }            
+        }
     }
     else if(cuSizeIdx == _32x32){
         if(lid < 4*4*4){
             redL_32x32[ctuIdx*nCusInCtu*reducedBoundarySize + lid] = bufferGlobalRedL[lid];
+        }
+        // Move complete boundary into global memory
+        if(lid < (cuColumnsPerCtu*128)){
+            
+            int nColumns = cuColumnsPerCtu;
+            int nRows = cuRowsPerCtu;
+
+            int columnsPerPass = wgSize/cuHeight;
+            int samplesPerRow = cuHeight*cuColumnsPerCtu; // Sum all left boundaries of CUs in the same CU row
+
+            int nPasses = (nColumns*128) / wgSize;
+
+            int currCuCol, currCuRow, currSample;
+
+            for(int pass=0; pass<nPasses; pass++){
+                int stride = pass*wgSize + lid;
+                currCuRow = stride / samplesPerRow;
+                currCuCol = (stride/cuHeight) % cuColumnsPerCtu;
+                currSample = stride % cuHeight;
+                // Left boundaries are stored in global memory in CU-raster order. First the boundaries of CU_0, then CU_1, then CU_2, ... Since CUs are upsampled in raster order, this order improves the memory accesses
+                refL_32x32[ctuIdx*cuColumnsPerCtu*128 + currCuRow*cuColumnsPerCtu*cuHeight + currCuCol*cuHeight + currSample] = bufferGlobalRefL[currCuCol][currCuRow*cuHeight + currSample];
+            }            
         }
     }
     else if(cuSizeIdx == _16x16){
@@ -561,6 +645,28 @@ __kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame,
             for(int pass=0; pass<nPasses; pass++){ // nPasses=2 for wgSize=128 and CUs 16x16 aligned
                 redL_16x16[ctuIdx*nCusInCtu*reducedBoundarySize + pass*wgSize + lid] = bufferGlobalRedL[pass*wgSize + lid];
             }
+        }
+        // Move complete boundary into global memory
+        if(lid < (cuColumnsPerCtu*128)){
+            
+            int nColumns = cuColumnsPerCtu;
+            int nRows = cuRowsPerCtu;
+
+            int columnsPerPass = wgSize/cuHeight;
+            int samplesPerRow = cuHeight*cuColumnsPerCtu; // Sum all left boundaries of CUs in the same CU row
+
+            int nPasses = (nColumns*128) / wgSize;
+
+            int currCuCol, currCuRow, currSample;
+
+            for(int pass=0; pass<nPasses; pass++){
+                int stride = pass*wgSize + lid;
+                currCuRow = stride / samplesPerRow;
+                currCuCol = (stride/cuHeight) % cuColumnsPerCtu;
+                currSample = stride % cuHeight;
+                // Left boundaries are stored in global memory in CU-raster order. First the boundaries of CU_0, then CU_1, then CU_2, ... Since CUs are upsampled in raster order, this order improves the memory accesses
+                refL_16x16[ctuIdx*cuColumnsPerCtu*128 + currCuRow*cuColumnsPerCtu*cuHeight + currCuCol*cuHeight + currSample] = bufferGlobalRefL[currCuCol][currCuRow*cuHeight + currSample];
+            }            
         }
     }
 }

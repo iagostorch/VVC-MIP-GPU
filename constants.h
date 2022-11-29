@@ -29,6 +29,18 @@ const unsigned char cusPerCtu[3] = {
     64
 };
 
+const unsigned char cuColumnsPerCtu[3] = {
+    2,  // 64x64
+    4,  // 32x32
+    8   // 16x16
+};
+
+const unsigned char cuRowsPerCtu[3] = {
+    2,  // 64x64
+    4,  // 32x32
+    8   // 16x16
+};
+
 // This is used as a stride when we must access information from multiple CU sizes in the same buffer
 const unsigned char stridedCusPerCtu[4] = { 
     0,          // 64x64
