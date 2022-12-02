@@ -299,12 +299,12 @@ int main(int argc, char *argv[])
 
     // These memory objects hold the predicted signal and distortion after the kernel has finished
     cl_mem return_predictionSignal_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                                           nCTUs * TOTAL_CUS_PER_CTU * 8 * 8 * 12 * sizeof(short), NULL, &error_2); // Each CTU is composed of TOTAL_CUS_PER_CTU CUs, and each reduced CU is 8*8, and we have 12 prediction modes
+                                                           nCTUs * TOTAL_CUS_PER_CTU * REDUCED_PRED_SIZE_Id2 * REDUCED_PRED_SIZE_Id2 * PREDICTION_MODES_ID2 * 2 * sizeof(short), NULL, &error_2); // Each CTU is composed of TOTAL_CUS_PER_CTU CUs, and each reduced CU is 8*8, and we have 12 prediction modes
 
     cl_mem return_SATD_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               nCTUs * TOTAL_CUS_PER_CTU * 12 * sizeof(long), NULL, &error_3);
-    cl_mem return_SAD_memObjj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               nCTUs * TOTAL_CUS_PER_CTU * 12 * sizeof(long), NULL, &error_4);
+                                               nCTUs * TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2 * 2 * sizeof(long), NULL, &error_3);
+    cl_mem return_SAD_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                               nCTUs * TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2 * 2 * sizeof(long), NULL, &error_4);
 
     error = error || error_1 || error_2 || error_3 || error_4;
 
@@ -386,7 +386,7 @@ int main(int argc, char *argv[])
 
     int reportToTerminal = 1;
     int reportToFile = 0;
-    int targetCTU = 0;
+    int targetCTU = 16;
 
     ///////////////////////////////////////////////////////////////////////////////////////
     /////              THESE DYNAMIC ARRAYS  MUST BE FREED AFTER EXECUTION            /////
@@ -412,9 +412,9 @@ int main(int argc, char *argv[])
     // -----------------------------
     // Allocate some memory space
     // -----------------------------
-    return_reducedPredictionSignal = (short*)malloc(sizeof(short) * nCTUs * 8 * 8 * TOTAL_CUS_PER_CTU * 12); // Each predicted CU has 8x8 samples
-    return_SATD = (long*) malloc(sizeof(long) * nCTUs * TOTAL_CUS_PER_CTU);
-    return_SAD = (long*) malloc(sizeof(long) * nCTUs * TOTAL_CUS_PER_CTU);
+    return_reducedPredictionSignal = (short*)malloc(sizeof(short) * nCTUs * 8 * 8 * TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2*2); // Each predicted CU has 8x8 samples
+    return_SATD = (long*) malloc(sizeof(long) * nCTUs * TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2*2);
+    return_SAD = (long*) malloc(sizeof(long) * nCTUs * TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2*2);
     // Reduced boundaries
     return_redT_64x64 = (short*) malloc(sizeof(short) * nCTUs * cusPerCtu[_64x64] * 4);
     return_redL_64x64 = (short*) malloc(sizeof(short) * nCTUs * cusPerCtu[_64x64] * 4);
@@ -558,7 +558,7 @@ int main(int argc, char *argv[])
     }
     
     // Export the complete boundaries for all CU sizes inside a target CTU index
-    if (1 && reportToTerminal) {
+    if (0 && reportToTerminal) {
         // Export the complete boundaries for all CU sizes inside a target CTU index
         printf("=-=-=-=-=- RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
         printf("=-=-=-=-=- COMPLETE TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
@@ -624,7 +624,6 @@ int main(int argc, char *argv[])
         }
     }
     
-    
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //
     //          NOW WE OBTAIN THE REDUCED PREDICTION FOR ALL CU SIZES AND PREDICTION MODES
@@ -649,16 +648,26 @@ int main(int argc, char *argv[])
     cout << "-- Maximum WG size " << maximum_size << endl;
 
     // Set the arguments of the kernel
+    error_1  = clSetKernelArg(kernel_reducedPrediction, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 1, sizeof(cl_int), (void *)&frameWidth);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 2, sizeof(cl_int), (void *)&frameHeight);
+    // Reduced boundaries
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 3, sizeof(cl_mem), (void *)&redT_64x64_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 4, sizeof(cl_mem), (void *)&redL_64x64_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 5, sizeof(cl_mem), (void *)&redT_32x32_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 6, sizeof(cl_mem), (void *)&redL_32x32_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 7, sizeof(cl_mem), (void *)&redT_16x16_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 8, sizeof(cl_mem), (void *)&redL_16x16_memObj);
+    // Complete boundaries
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 9, sizeof(cl_mem), (void *)&refT_64x64_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 10, sizeof(cl_mem), (void *)&refL_64x64_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 11, sizeof(cl_mem), (void *)&refT_32x32_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 12, sizeof(cl_mem), (void *)&refL_32x32_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 13, sizeof(cl_mem), (void *)&refT_16x16_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 14, sizeof(cl_mem), (void *)&refL_16x16_memObj);
 
-    error_1 = clSetKernelArg(kernel_reducedPrediction, 0, sizeof(cl_mem), (void *)&redT_64x64_memObj);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 1, sizeof(cl_mem), (void *)&redL_64x64_memObj);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 2, sizeof(cl_mem), (void *)&redT_32x32_memObj);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 3, sizeof(cl_mem), (void *)&redL_32x32_memObj);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 4, sizeof(cl_mem), (void *)&redT_16x16_memObj);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 5, sizeof(cl_mem), (void *)&redL_16x16_memObj);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 6, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 7, sizeof(cl_int), (void *)&frameWidth);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 8, sizeof(cl_int), (void *)&frameHeight);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 15, sizeof(cl_mem), (void *)&return_SAD_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 16, sizeof(cl_mem), (void *)&referenceFrame_memObj);
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
@@ -683,9 +692,47 @@ int main(int argc, char *argv[])
 
     execTime_reducedPrediction = nanoSeconds;
 
-    readMemobjsIntoArray_reducedPrediction(command_queue, nCTUs, TOTAL_PREDICTION_MODES, return_predictionSignal_memObj,  return_reducedPredictionSignal);
+    readMemobjsIntoArray_reducedPrediction(command_queue, nCTUs, TOTAL_PREDICTION_MODES, return_predictionSignal_memObj,  return_reducedPredictionSignal, return_SAD_memObj, return_SAD);
 
-    if( 0 && reportToTerminal ){
+    if( 1 && reportToTerminal ){
+        printf("=-=-=-=-=- RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
+        printf("RESULTS FOR 64x64\n");
+        for (int cu = 0; cu < 4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int mode=0; mode<12; mode++){
+                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_64x64]*12 + cu*12 + mode ]);
+            }
+            printf("\n");
+        }
+        printf("\n");        
+
+
+        printf("RESULTS FOR 32x32\n");
+        for (int cu = 0; cu < 16; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int mode=0; mode<12; mode++){
+                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_32x32]*12 + cu*12 + mode ]);
+            }
+            printf("\n");
+        }
+        printf("\n"); 
+
+        printf("RESULTS FOR 16x16\n");
+        for (int cu = 0; cu < 64; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int mode=0; mode<12; mode++){
+                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_16x16]*12 + cu*12 + mode ]);
+            }
+            printf("\n");
+        }
+        printf("\n");         
+    }
+
+
+    if( 1 && reportToTerminal ){
         int cuSizeIdx;
 
         printf("TRACING REDUCED PREDICTION SIGNAL FOR CTU %d\n", targetCTU);

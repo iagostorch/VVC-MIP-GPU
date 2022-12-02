@@ -676,7 +676,7 @@ __kernel void initReducedBoundariesSquareSizeId2(__global short *referenceFrame,
 // The prediction of all prediction modes is stored in global memory and returned to the host
 // Each WG will process one CTU composed of a single CU size
 // It works for square blocks with SizeId=2 (64x64, 32x32, 16x16)
-__kernel void MIP_squareSizeId2(__global short *redT_64x64, __global short *redL_64x64, __global short *redT_32x32, __global short *redL_32x32, __global short *redT_16x16, __global short *redL_16x16, __global short *reducedPrediction, const int frameWidth, const int frameHeight){
+__kernel void MIP_squareSizeId2(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global short *redT_64x64, __global short *redL_64x64, __global short *redT_32x32, __global short *redL_32x32, __global short *redT_16x16, __global short *redL_16x16, __global short *refT_64x64, __global short *refL_64x64, __global short *refT_32x32, __global short *refL_32x32, __global short *refT_16x16, __global short *refL_16x16, __global long *SAD, __global short* originalSamples){
     // Variables for indexing work items and work groups
     int gid = get_global_id(0);
     int wg = get_group_id(0);
@@ -687,7 +687,7 @@ __kernel void MIP_squareSizeId2(__global short *redT_64x64, __global short *redL
     const short cuSizeIdx = wg%NUM_CU_SIZES;
     const short cuWidth = widths[cuSizeIdx];
     const short cuHeight = heights[cuSizeIdx];
-    const short nCusInCtu = cusPerCtu[cuSizeIdx];
+    const int nCusInCtu = cusPerCtu[cuSizeIdx];
 
     const short ctuColumnsPerFrame = (short) ceil((float)frameWidth/128);
       
@@ -707,15 +707,24 @@ __kernel void MIP_squareSizeId2(__global short *redT_64x64, __global short *redL
     // After all CUs are predicted with a single prediction mode, the buffer is moved into global memory and the next prediction mode is tested
     __local short reducedPredictedCtu[MAX_CUS_PER_CTU][(BOUNDARY_SIZE_Id2*2)*(BOUNDARY_SIZE_Id2*2)];
 
+    __local short upsampledPredictedCtu[128*128]; // used to store the entire CTU after upsampling, before computing distortion
+
     int totalPredictionModes = PREDICTION_MODES_ID2 + TEST_TRANSPOSED_MODES*PREDICTION_MODES_ID2;
     // Each 64 workitems process one CU irrespective of the "original size" since the reduced prediciton is 64x64 for all of them
-    const short itemsPerCu = 64;
-    const char sampleInCu = lid%itemsPerCu; // Each workitem processes 1 sample
-    int cusPerPass = wgSize/itemsPerCu;
+    const short itemsPerCuInPrediction = 64;
+    const char sampleInCu = lid%itemsPerCuInPrediction; // Each workitem processes 1 sample
+    int cusPerPass = wgSize/itemsPerCuInPrediction;
     int nPasses = nCusInCtu / cusPerPass;
     short cuIdxInCtu;
     int predSample;
     
+    // Compute transposed index inside CU. Used for transposed MIP modes
+    char transposedSampleInCu;
+    char tempX, tempY;
+    tempX = sampleInCu%REDUCED_PRED_SIZE_Id2;
+    tempY = sampleInCu/REDUCED_PRED_SIZE_Id2;
+    transposedSampleInCu = tempX*REDUCED_PRED_SIZE_Id2 + tempY;
+
     short8 reducedBoundaries, coefficients;
     short4 reducedT, reducedL;
 
@@ -728,7 +737,7 @@ __kernel void MIP_squareSizeId2(__global short *redT_64x64, __global short *redL
         short8 isTransp = (short8) (t,t,t,t,t,t,t,t);
 
         for(int pass=0; pass<nPasses; pass++){
-            cuIdxInCtu = pass*cusPerPass + floor((float)lid/itemsPerCu);
+            cuIdxInCtu = pass*cusPerPass + floor((float)lid/itemsPerCuInPrediction);
             // Fetch the redT and redL samples from global memory
             if(cuWidth == 64){
                 reducedT = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redT_64x64);
@@ -775,13 +784,16 @@ __kernel void MIP_squareSizeId2(__global short *redT_64x64, __global short *redL
             predSample = (predSample >> MIP_SHIFT_MATRIX) + firstVal;
             predSample = clamp(predSample, 0, (1<<10)-1);
 
-            reducedPredictedCtu[cuIdxInCtu][sampleInCu] = predSample;
+            // Adjust the "correct" position inside the CU depending if the mode is transposed or not            
+            short position = select((short) sampleInCu, (short) transposedSampleInCu, t);
+
+            reducedPredictedCtu[cuIdxInCtu][position] = predSample;
 
             // Wait until all samples of the CTU are predicted because we will move it into global memory in sequence
             barrier(CLK_LOCAL_MEM_FENCE);
 
             /*    TRACE PREDICTION
-            if(1 && lid==(192+32) && cuWidth==64){
+            if(0 && pass==0 && lid==(192+32) && cuWidth==64 && mode==0 && ctuIdx==0){
                 for(int cu=0; cu<4; cu++){
                     printf("REDUCED PREDICTION: CTU %d, CU %d, Mode %d\n", ctuIdx, cu, m);
                     for(int i=0; i<8; i++){
@@ -799,31 +811,242 @@ __kernel void MIP_squareSizeId2(__global short *redT_64x64, __global short *redL
         // This points to the start of current CTU in the reduced prediction global buffer
         const int currCtuPredictionIdx = ctuIdx*TOTAL_CUS_PER_CTU*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
         int currCuPredictionIdx; // This will point to the start of the current CU in the reduced prediction global buffer (i.e., CTU position + offset)
-        for(int pass=0; pass<nPasses; pass++){
-            cuIdxInCtu = pass*cusPerPass + floor((float)lid/itemsPerCu);
-            // Point to start of this CU size in global buffer
-            currCuPredictionIdx = currCtuPredictionIdx + stridedCusPerCtu[cuSizeIdx]*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
-            // Point to start of this CU specifically in global buffer
-            currCuPredictionIdx += cuIdxInCtu*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
-            // Point to start of the current mode in global buffer
-            currCuPredictionIdx += m*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2;
+        
+        // Should we save the reduced prediction in global memory? If the upsampling is conducted in the same kernel it is not necessary
+        int SAVE_REDUCED_PREDICTION_IN_GLOBAL = 1;
+        
+        if(SAVE_REDUCED_PREDICTION_IN_GLOBAL){
+            for(int pass=0; pass<nPasses; pass++){
+                cuIdxInCtu = pass*cusPerPass + floor((float)lid/itemsPerCuInPrediction);
+                // Point to start of this CU size in global buffer
+                currCuPredictionIdx = currCtuPredictionIdx + stridedCusPerCtu[cuSizeIdx]*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU specifically in global buffer
+                currCuPredictionIdx += cuIdxInCtu*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of the current mode in global buffer
+                currCuPredictionIdx += m*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2;
 
-            // When the prediction uses transposed modes, the reduced prediction signal must be transposed when moved into global memory
-            // This is used to translate a non-transposed index into a transposed index, and access global memory more efficiently
-            int sampleInTransposedCU; 
-
-            int ntX, ntY, tX, tY;
-            ntX = sampleInCu%REDUCED_PRED_SIZE_Id2;
-            ntY = sampleInCu/REDUCED_PRED_SIZE_Id2;
-            tX = ntY; // Swap non-transposed and transposed X/Y coordinates
-            tY = ntX;
-            // Transform the coordinates into a one-dimensional array for the 8*8=64 reduced prediction block
-            sampleInTransposedCU = tY*REDUCED_PRED_SIZE_Id2 + tX;
-            // In transposed modes, t=-1. This selects between transposed and non-transposed indices with a simple operation
-            int correctedSampleInCu = -1*t*sampleInTransposedCU + (1+t)*sampleInCu;
-
-            reducedPrediction[currCuPredictionIdx + sampleInCu] = reducedPredictedCtu[cuIdxInCtu][correctedSampleInCu];
+                reducedPrediction[currCuPredictionIdx + sampleInCu] = reducedPredictedCtu[cuIdxInCtu][sampleInCu];
+            }
             barrier(CLK_LOCAL_MEM_FENCE); // Wait until all predicted samples are moved. The next iteration overwrites the local prediction buffer
         }
+
+        // TODO: The upsampling and distortion could be moved into another kernel
+        // -----------------------------------------------------------------------
+        //
+        // Here we can upsample the prediction signal and compute the distortion
+        //
+        int upsamplingHorizontal = cuWidth / REDUCED_PRED_SIZE_Id2;
+        int upsamplingVertical = cuHeight / REDUCED_PRED_SIZE_Id2;
+
+        int log2UpsamplingHorizontal = (int) log2((float) upsamplingHorizontal);
+        int roundingOffsetHorizontal = 1 << (log2UpsamplingHorizontal - 1);
+
+        int log2UpsamplingVertical = (int) log2((float) upsamplingVertical);
+        int roundingOffsetVertical = 1 << (log2UpsamplingVertical - 1);
+        
+        // TODO: Correct this when supporting more block sizes.
+        // Correct value is upsamplingHorizontal>1 || upsamplingVertical>1;
+        int needUpsampling = 1; 
+
+        // ######################################################################
+        //      Variables shared for hotizontal and vertical interpolation
+        int xPosInCu, yPosInCu, xPosInCtu, yPosInCtu, idx, currCu;
+        int valueBefore, valueAfter;
+        int isMiddle;
+        int offsetInStride;
+        int itemsPerCuInUpsampling;
+
+        // #################################################### 
+        //         Start with horizontal upsampling...
+        // ####################################################
+
+
+        // The block produced by horizontal upsampling has 64x8 samples
+
+        // Here each workitem will compute the upsampled version of one sample in horizontal direction
+        itemsPerCuInUpsampling = min(wgSize, cuWidth * REDUCED_PRED_SIZE_Id2);
+        
+        int nPassesHorizontalUpsampling = (nCusInCtu * cuWidth * REDUCED_PRED_SIZE_Id2) / wgSize;
+        
+        int passesPerCu = max(1, (cuWidth * REDUCED_PRED_SIZE_Id2)/wgSize);
+        int yOffsetPerPass = (itemsPerCuInUpsampling/cuWidth)*upsamplingVertical;
+        int passInCu;
+
+        for(int pass=0; pass<nPassesHorizontalUpsampling; pass++){
+            passInCu = pass%passesPerCu;
+            idx = pass*wgSize + lid;
+            currCu = idx / (cuWidth * REDUCED_PRED_SIZE_Id2);
+            xPosInCu = (idx%itemsPerCuInUpsampling)%cuWidth;
+            yPosInCu = passInCu*yOffsetPerPass  + ((idx%itemsPerCuInUpsampling)/cuWidth)*upsamplingVertical + upsamplingVertical-1;
+            xPosInCtu = (currCu%cuColumnsPerCtu)*cuWidth + xPosInCu;
+            yPosInCtu = (currCu/cuColumnsPerCtu)*cuHeight + yPosInCu;
+
+            isMiddle = xPosInCu>=upsamplingHorizontal; // In this case, the left boundary is not used
+            offsetInStride = xPosInCu%upsamplingHorizontal+1; // Position inside one window where samples are being interpolated. BeforeReference has stride=0, first interpolated sample has stride=1
+
+            // For the first couple of sample columns, the "before" reference is the refL buffer
+            if(isMiddle == 0){
+                if(cuSizeIdx == _64x64){
+                    valueBefore = refL_64x64[ctuIdx*cuColumnsPerCtu*128 + currCu*cuHeight + yPosInCu];
+                }
+                else if(cuSizeIdx == _32x32){
+                    valueBefore = refL_32x32[ctuIdx*cuColumnsPerCtu*128 + currCu*cuHeight + yPosInCu];
+                }
+                else if(cuSizeIdx == _16x16){
+                    valueBefore = refL_16x16[ctuIdx*cuColumnsPerCtu*128 + currCu*cuHeight + yPosInCu];
+                }
+                // Predicted value that is after the current sample
+                valueAfter = reducedPredictedCtu[currCu][(yPosInCu>>log2UpsamplingVertical)*REDUCED_PRED_SIZE_Id2 + (xPosInCu>>log2UpsamplingHorizontal)];            
+            }
+            else{ // isMiddle == 1
+                valueBefore = reducedPredictedCtu[currCu][(yPosInCu>>log2UpsamplingVertical)*REDUCED_PRED_SIZE_Id2 + (xPosInCu>>log2UpsamplingHorizontal) - 1];
+                valueAfter = reducedPredictedCtu[currCu][(yPosInCu>>log2UpsamplingVertical)*REDUCED_PRED_SIZE_Id2 + (xPosInCu>>log2UpsamplingHorizontal)];
+            }
+
+            int filteredSample = ((upsamplingHorizontal-offsetInStride)*valueBefore + offsetInStride*valueAfter + roundingOffsetHorizontal)>>log2UpsamplingHorizontal;
+            upsampledPredictedCtu[yPosInCtu*128 + xPosInCtu] = filteredSample; // used to store the entire CTU after upsampling, before computing distortion
+        }
+
+        barrier(CLK_LOCAL_MEM_FENCE);
+        // At this point the horizontal interpolation is finished
+        
+        /* Print the signal after horizontal upsampling
+        if(lid==0){
+            for(int cu=0; cu<nCusInCtu; cu++){
+                int printPrediction = 0;
+                if(0 && ctuIdx==16 && cu==45 && cuSizeIdx==_16x16 && m==0){
+                    printPrediction = 1;
+                }
+                
+                if(printPrediction){
+                    printf("REDUCED PREDICTION CU %d\n", cu);
+                    for(int i=0; i<8; i++){
+                        for(int j=0; j<8; j++){
+                            printf("%d,", reducedPredictedCtu[cu][i*8+j]);
+                        }
+                        printf("\n");
+                    }
+                    printf("\n\n");
+                }
+
+                if(printPrediction){
+                    printf("PARTIAL UPSAMPLE CU %d\n", cu);
+                }
+                
+                int yPosInCtu = ((cu*cuWidth)/128)*cuHeight;
+                int xPosInCtu = (cu*cuWidth)%128;
+                
+                int yPosInFrame = (ctuIdx/15)*128 + yPosInCtu; // 15 CTUs per row in frame
+                int xPosInFrame = (ctuIdx%15)*128 + xPosInCtu;
+
+                for(int y=upsamplingHorizontal-1; y<cuHeight; y+=upsamplingHorizontal){
+                    for(int x=0; x<cuWidth; x++){
+                        if(printPrediction){
+                            printf("%d,", upsampledPredictedCtu[(yPosInCtu+y)*128 + xPosInCtu+x]);
+                        }
+                    }
+                    if(printPrediction){
+                        printf("\n");
+                    }
+                }
+                if(printPrediction){
+                    printf("\n\n");
+                }                
+            }
+        }
+        //*/
+
+        // #######################################################
+        //         Then continue to vertical upsampling...
+        // #######################################################
+
+        // Here each workitem will compute the upsampled version of one sample in vertical direction
+        itemsPerCuInUpsampling = min(wgSize, cuWidth * cuHeight);
+        
+        passesPerCu = max(1, (cuWidth * cuHeight)/wgSize);
+        yOffsetPerPass = (itemsPerCuInUpsampling/cuWidth);
+        
+        int nPassesVerticalUpsampling = (nCusInCtu * cuWidth * cuHeight) / wgSize;
+
+        for(int pass=0; pass<nPassesVerticalUpsampling; pass++){
+            idx = pass*wgSize + lid;
+            passInCu = pass%passesPerCu;
+            currCu = idx / (cuWidth * cuHeight);
+            
+            xPosInCu = (idx%itemsPerCuInUpsampling)%cuWidth;
+            yPosInCu = passInCu*yOffsetPerPass + ((idx%itemsPerCuInUpsampling)/cuWidth);
+            xPosInCtu = (currCu%cuColumnsPerCtu)*cuWidth + xPosInCu;
+            yPosInCtu = (currCu/cuColumnsPerCtu)*cuHeight + yPosInCu;
+
+            isMiddle = yPosInCu>=upsamplingVertical; // In this case, the upper boundary is not used
+            offsetInStride = yPosInCu%upsamplingVertical+1; // Position inside one window where samples are being interpolated
+            
+            // For the first couple of sample columns, the "before" reference is the refT buffer
+            if(isMiddle == 0){
+                if(cuSizeIdx == _64x64){
+                    valueBefore = refT_64x64[ctuIdx*cuRowsPerCtu*128 + currCu*cuWidth + xPosInCu];
+                }
+                else if(cuSizeIdx == _32x32){
+                    valueBefore = refT_32x32[ctuIdx*cuRowsPerCtu*128 + currCu*cuWidth + xPosInCu];
+                }
+                else if(cuSizeIdx == _16x16){
+                    valueBefore = refT_16x16[ctuIdx*cuRowsPerCtu*128 + currCu*cuWidth + xPosInCu];
+                }
+                // Predicted value that us after the current sample
+                valueAfter = upsampledPredictedCtu[(((yPosInCtu>>log2UpsamplingVertical)<<log2UpsamplingVertical) + upsamplingVertical-1)*128 + xPosInCtu];
+            }
+            else{ // isMiddle == 1
+                // TODO: Shifting right and left with the same amount can be substituted by AND operation
+                valueBefore = upsampledPredictedCtu[(((yPosInCtu>>log2UpsamplingVertical)<<log2UpsamplingVertical)-1)*128 + xPosInCtu];
+                valueAfter = upsampledPredictedCtu[(((yPosInCtu>>log2UpsamplingVertical)<<log2UpsamplingVertical)+upsamplingVertical-1)*128 + xPosInCtu];
+            }
+
+            int filteredSample = ((upsamplingVertical-offsetInStride)*valueBefore + offsetInStride*valueAfter + roundingOffsetVertical)>>log2UpsamplingVertical;
+            upsampledPredictedCtu[yPosInCtu*128 + xPosInCtu] = filteredSample; // used to store the entire CTU after upsampling, before computing distortion
+        }
+
+        barrier(CLK_LOCAL_MEM_FENCE);
+        // At this point the current CTU is fully upsampled
+        
+        // TODO: The SAD is being computed in a completely serial fashion. We must improve it
+        // --------------------------------------------------------
+        //      COMPUTE THE SAD OF CURRENT CU WITH CURRENT PREDICTION MODE
+        if(lid==0){
+            for(int cu=0; cu<nCusInCtu; cu++){
+                int printPrediction = 0;
+                if(0 && ctuIdx==0 && cu==0 && cuSizeIdx==_64x64 && m==0){
+                    printPrediction = 1;
+                }
+                
+                if(printPrediction){
+                    printf("COMPLETE UPSAMPLED CU %d\n", cu);
+                    // printf("ORIGINAL SIGNAL OF CU %d\n", cu);
+                }
+                
+                int yPosInCtu = ((cu*cuWidth)/128)*cuHeight;
+                int xPosInCtu = (cu*cuWidth)%128;
+                
+                int ctuColumnsInFrame = ceil((float) frameWidth/128);
+                int yPosInFrame = (ctuIdx/ctuColumnsInFrame)*128 + yPosInCtu;
+                int xPosInFrame = (ctuIdx%ctuColumnsInFrame)*128 + xPosInCtu;
+                
+                long int tempSad = 0;
+                for(int y=0; y<cuHeight; y++){
+                    for(int x=0; x<cuWidth; x++){
+                        if(printPrediction){
+                            printf("%d,", upsampledPredictedCtu[(yPosInCtu+y)*128 + xPosInCtu+x]);
+                        }
+                        tempSad += (long int) abs(upsampledPredictedCtu[(yPosInCtu+y)*128 + xPosInCtu+x] - originalSamples[(yPosInFrame+y)*1920 + xPosInFrame+x]);
+                    }
+                    if(printPrediction){
+                        printf("\n");
+                    }
+                }
+                if(printPrediction){
+                    printf("\n\n");
+                }
+                SAD[ctuIdx*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[cuSizeIdx]*12 + cu*12 + m] = tempSad;
+            }
+        }   
     } // End of current mode
 }
