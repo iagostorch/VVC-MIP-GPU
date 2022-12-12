@@ -372,7 +372,7 @@ int main(int argc, char *argv[])
     size_t size_ret;
     cl_uint preferred_size, maximum_size;
 
-    cl_kernel kernel_initRefSamples, kernel_reducedPrediction; // The object that holds the compiled kernel to be enqueued
+    cl_kernel kernel_initRefSamples, kernel_reducedPrediction, kernel_upsampleDistortion; // The object that holds the compiled kernel to be enqueued
 
     // Used to profile execution time of kernel
     cl_event event;
@@ -448,9 +448,9 @@ int main(int argc, char *argv[])
     itemsPerWG = itemsPerWG_obtainReducedBoundaries;
 
     // Create kernel
-    kernel_initRefSamples = clCreateKernel(program, "initReducedBoundariesSquareSizeId2", &error);
-    probe_error(error, (char*)"Error creating initReducedBoundariesSquareSizeId2 kernel\n"); 
-    printf("Performing initReducedBoundariesSquareSizeId2 kernel...\n");
+    kernel_initRefSamples = clCreateKernel(program, "initBoundariesSquareSizeId2", &error);
+    probe_error(error, (char*)"Error creating initBoundariesSquareSizeId2 kernel\n"); 
+    printf("Performing initBoundariesSquareSizeId2 kernel...\n");
 
     // Query for work groups sizes information
     error = clGetKernelWorkGroupInfo(kernel_initRefSamples, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
@@ -462,7 +462,7 @@ int main(int argc, char *argv[])
     cout << "-- Preferred WG size multiple " << preferred_size << endl;
     cout << "-- Maximum WG size " << maximum_size << endl;
 
-    // Set the arguments of the kernel initReducedBoundariesSquareSizeId2
+    // Set the arguments of the kernel initBoundariesSquareSizeId2
     error_1 = clSetKernelArg(kernel_initRefSamples, 0, sizeof(cl_mem), (void *)&referenceFrame_memObj);
     error_1 |= clSetKernelArg(kernel_initRefSamples, 1, sizeof(cl_int), (void *)&frameWidth);
     error_1 |= clSetKernelArg(kernel_initRefSamples, 2, sizeof(cl_int), (void *)&frameHeight);
@@ -510,7 +510,6 @@ int main(int argc, char *argv[])
     // Read affine results from memory objects into host arrays
     readMemobjsIntoArray_ReducedBoundaries(command_queue, nCTUs, redT_64x64_memObj, redL_64x64_memObj, redT_32x32_memObj, redL_32x32_memObj, redT_16x16_memObj, redL_16x16_memObj, return_redT_64x64, return_redL_64x64, return_redT_32x32, return_redL_32x32, return_redT_16x16, return_redL_16x16);
     readMemobjsIntoArray_CompleteBoundaries(command_queue, nCTUs, refT_64x64_memObj, refL_64x64_memObj, refT_32x32_memObj, refL_32x32_memObj, refT_16x16_memObj, refL_16x16_memObj, return_refT_64x64, return_refL_64x64, return_refT_32x32, return_refL_32x32, return_refT_16x16, return_refL_16x16);
-    reportTimingResults();
     
     // Export the reduced boundaries for all CU sizes inside a target CTU index
     if (0 && reportToTerminal) {
@@ -647,7 +646,7 @@ int main(int argc, char *argv[])
     cout << "-- Preferred WG size multiple " << preferred_size << endl;
     cout << "-- Maximum WG size " << maximum_size << endl;
 
-    // Set the arguments of the kernel
+    // Set the arguments of the MIP_squareSizeId2 kernel
     error_1  = clSetKernelArg(kernel_reducedPrediction, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 1, sizeof(cl_int), (void *)&frameWidth);
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 2, sizeof(cl_int), (void *)&frameHeight);
@@ -694,45 +693,7 @@ int main(int argc, char *argv[])
 
     readMemobjsIntoArray_reducedPrediction(command_queue, nCTUs, TOTAL_PREDICTION_MODES, return_predictionSignal_memObj,  return_reducedPredictionSignal, return_SAD_memObj, return_SAD);
 
-    if( 1 && reportToTerminal ){
-        printf("=-=-=-=-=- RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
-        printf("RESULTS FOR 64x64\n");
-        for (int cu = 0; cu < 4; cu++)
-        {
-            printf("CU %d\n", cu);
-            for(int mode=0; mode<12; mode++){
-                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_64x64]*12 + cu*12 + mode ]);
-            }
-            printf("\n");
-        }
-        printf("\n");        
-
-
-        printf("RESULTS FOR 32x32\n");
-        for (int cu = 0; cu < 16; cu++)
-        {
-            printf("CU %d\n", cu);
-            for(int mode=0; mode<12; mode++){
-                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_32x32]*12 + cu*12 + mode ]);
-            }
-            printf("\n");
-        }
-        printf("\n"); 
-
-        printf("RESULTS FOR 16x16\n");
-        for (int cu = 0; cu < 64; cu++)
-        {
-            printf("CU %d\n", cu);
-            for(int mode=0; mode<12; mode++){
-                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_16x16]*12 + cu*12 + mode ]);
-            }
-            printf("\n");
-        }
-        printf("\n");         
-    }
-
-
-    if( 1 && reportToTerminal ){
+    if( 0 && reportToTerminal ){
         int cuSizeIdx;
 
         printf("TRACING REDUCED PREDICTION SIGNAL FOR CTU %d\n", targetCTU);
@@ -807,6 +768,108 @@ int main(int argc, char *argv[])
     }
 
 
+    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+    //
+    //          FINALLY, UPSAMPLE THE REDUCED PREDICTION AND COMPUTE THE DISTOTION
+    //
+    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+    itemsPerWG = itemsPerWG_upsampleDistortion;
+
+    // Create kernel
+    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId2", &error);
+    probe_error(error, (char *)"Error creating upsampleDistortionSizeId2 kernel\n");
+    printf("Performing upsampleDistortionSizeId2 kernel...\n");
+
+    // Query for work groups sizes information
+    error = clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
+    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
+    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
+    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
+
+    probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
+    cout << "-- Preferred WG size multiple " << preferred_size << endl;
+    cout << "-- Maximum WG size " << maximum_size << endl;
+
+    // Set the arguments of the upsampleDistortionSizeId2 kernel
+    error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
+    // Complete boundaries
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&refT_64x64_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&refL_64x64_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&refT_32x32_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&refL_32x32_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&refT_16x16_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refL_16x16_memObj);
+    // Reference samples and final distortion
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&return_SAD_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+
+    probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
+
+    // Execute the OpenCL kernel on the list
+    // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
+    global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
+    local_item_size = itemsPerWG;
+
+    error = clEnqueueNDRangeKernel(command_queue, kernel_upsampleDistortion, 1, NULL,
+                                   &global_item_size, &local_item_size, 0, NULL, &event);
+    probe_error(error, (char *)"Error enqueuing kernel\n");
+
+    error = clWaitForEvents(1, &event);
+    probe_error(error, (char *)"Error waiting for events\n");
+
+    error = clFinish(command_queue);
+    probe_error(error, (char *)"Error finishing\n");
+
+    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+    nanoSeconds = time_end - time_start;
+
+    execTime_upsampleDistortion = nanoSeconds;
+
+    readMemobjsIntoArray_SAD(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD);
+
+    if( 1 && reportToTerminal ){
+        printf("=-=-=-=-=- RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
+        printf("RESULTS FOR 64x64\n");
+        for (int cu = 0; cu < 4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int mode=0; mode<12; mode++){
+                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_64x64]*12 + cu*12 + mode ]);
+            }
+            printf("\n");
+        }
+        printf("\n");        
+
+
+        printf("RESULTS FOR 32x32\n");
+        for (int cu = 0; cu < 16; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int mode=0; mode<12; mode++){
+                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_32x32]*12 + cu*12 + mode ]);
+            }
+            printf("\n");
+        }
+        printf("\n"); 
+
+        printf("RESULTS FOR 16x16\n");
+        for (int cu = 0; cu < 64; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int mode=0; mode<12; mode++){
+                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_16x16]*12 + cu*12 + mode ]);
+            }
+            printf("\n");
+        }
+        printf("\n");         
+    }
+
+    reportTimingResults();
+
 
 
     // -----------------------------------------------------------------
@@ -856,9 +919,9 @@ int main(int argc, char *argv[])
     error |= clReleaseMemObject(refT_16x16_memObj);
     error |= clReleaseMemObject(refL_16x16_memObj);
     error |= clReleaseMemObject(referenceFrame_memObj);
-    // error |= clReleaseMemObject(return_predictedBlock_memObj);
+    error |= clReleaseMemObject(return_predictionSignal_memObj);
     // error |= clReleaseMemObject(return_SATD_memObj);
-    // error |= clReleaseMemObject(return_SAD_memObj);
+    error |= clReleaseMemObject(return_SAD_memObj);
     error |= clReleaseMemObject(debug_mem_obj);
     probe_error(error, (char *)"Error releasing  OpenCL objects\n");
 

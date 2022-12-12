@@ -15,8 +15,11 @@ float readTime = 0;
 float readTime_reducedBoundaries = 0;
 float readTime_reducedPrediction = 0;
 float readTime_completeBoundaries = 0;
+float readTime_SAD = 0.0;
 float execTime_reducedBoundaries = 0;
 float execTime_reducedPrediction = 0;
+float execTime_upsampleDistortion = 0;
+
 float execTime = 0;
 
 void probe_error(cl_int error, char* message){
@@ -204,7 +207,15 @@ void readMemobjsIntoArray_reducedPrediction(cl_command_queue command_queue, int 
     clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
     nanoSeconds = read_time_end-read_time_start;
   
+    readTime_reducedPrediction = nanoSeconds;
+}
 
+void readMemobjsIntoArray_SAD(cl_command_queue command_queue, int nCTUs, int nPredictionModes, cl_mem return_SAD_memObj, long *return_SAD){
+    int error;
+    double nanoSeconds = 0.0;
+    cl_ulong read_time_start, read_time_end;
+    cl_event read_event;
+    
     error =  clEnqueueReadBuffer(command_queue, return_SAD_memObj, CL_TRUE, 0, 
             nCTUs * TOTAL_CUS_PER_CTU * 12 * sizeof(cl_long), return_SAD, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return prediction\n");
@@ -216,14 +227,9 @@ void readMemobjsIntoArray_reducedPrediction(cl_command_queue command_queue, int 
     clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
     nanoSeconds += read_time_end-read_time_start;
 
-
-    readTime_reducedPrediction = nanoSeconds;
-
-
-
+    readTime_SAD = nanoSeconds;
 
 }
-
 
 // Read data from memory objects into arrays
 void readMemobjsIntoArray(cl_command_queue command_queue, int numPredictions, int blockSize, cl_mem return_prediction_memObj, cl_mem return_SATD_memObj, cl_mem return_SAD_memObj, short *return_prediction, long *return_SATD, long *return_SAD, cl_mem debug_memObj, short* debug_data){
@@ -287,10 +293,14 @@ void reportTimingResults(){
     printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n");
     printf("TIMING RESULTS (nanoseconds)\n");
     printf("Write,%f\n", writeTime);
-    printf("ReducedBoundaries: Execution,%f\n", execTime_reducedBoundaries);
-    printf("ReducedBoundaries: Read reduced,%f\n", readTime_reducedBoundaries);
-    printf("ReducedBoundaries: Read complete,%f\n", readTime_completeBoundaries);
-    printf("ReducedPrediction: Execution,%f\n", execTime_reducedPrediction);
-    printf("ReducedPrediction: Read,%f\n", readTime_reducedPrediction);    
+    printf("InitBoundaries:  Execution,%f\n", execTime_reducedBoundaries);
+    printf("InitBoundaries:  Read reduced,%f\n", readTime_reducedBoundaries);
+    printf("InitBoundaries:  Read complete,%f\n", readTime_completeBoundaries);
+    
+    printf("ReducedPrediction:  Execution,%f\n", execTime_reducedPrediction);
+    printf("ReducedPrediction:  Read,%f\n", readTime_reducedPrediction);   
+
+    printf("UpsamplePredictionDistortion: Execution,%f\n", execTime_upsampleDistortion); 
+    printf("UpsamplePredictionDistortion: Read,%f\n", readTime_SAD); 
     printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n\n");    
 }
