@@ -804,7 +804,8 @@ int main(int argc, char *argv[])
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refL_16x16_memObj);
     // Reference samples and final distortion
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&return_SAD_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&return_SATD_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 11, sizeof(cl_mem), (void *)&referenceFrame_memObj);
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
@@ -829,10 +830,11 @@ int main(int argc, char *argv[])
 
     execTime_upsampleDistortion = nanoSeconds;
 
-    readMemobjsIntoArray_SAD(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD);
+    readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD);
 
+    // SAD Results
     if( 1 && reportToTerminal ){
-        printf("=-=-=-=-=- RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
+        printf("=-=-=-=-=- SAD RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
         printf("RESULTS FOR 64x64\n");
         for (int cu = 0; cu < 4; cu++)
         {
@@ -867,6 +869,45 @@ int main(int argc, char *argv[])
         }
         printf("\n");         
     }
+
+    // SATD Results
+    if( 1 && reportToTerminal ){
+        printf("=-=-=-=-=- SATD RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
+        printf("RESULTS FOR 64x64\n");
+        for (int cu = 0; cu < 4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int mode=0; mode<12; mode++){
+                printf("%ld,", return_SATD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_64x64]*12 + cu*12 + mode ]);
+            }
+            printf("\n");
+        }
+        printf("\n");        
+
+
+        printf("RESULTS FOR 32x32\n");
+        for (int cu = 0; cu < 16; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int mode=0; mode<12; mode++){
+                printf("%ld,", return_SATD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_32x32]*12 + cu*12 + mode ]);
+            }
+            printf("\n");
+        }
+        printf("\n"); 
+
+        printf("RESULTS FOR 16x16\n");
+        for (int cu = 0; cu < 64; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int mode=0; mode<12; mode++){
+                printf("%ld,", return_SATD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_16x16]*12 + cu*12 + mode ]);
+            }
+            printf("\n");
+        }
+        printf("\n");         
+    }
+
 
     reportTimingResults();
 
@@ -920,7 +961,7 @@ int main(int argc, char *argv[])
     error |= clReleaseMemObject(refL_16x16_memObj);
     error |= clReleaseMemObject(referenceFrame_memObj);
     error |= clReleaseMemObject(return_predictionSignal_memObj);
-    // error |= clReleaseMemObject(return_SATD_memObj);
+    error |= clReleaseMemObject(return_SATD_memObj);
     error |= clReleaseMemObject(return_SAD_memObj);
     error |= clReleaseMemObject(debug_mem_obj);
     probe_error(error, (char *)"Error releasing  OpenCL objects\n");
