@@ -29,6 +29,17 @@ void probe_error(cl_int error, char* message){
     }
 }
 
+const char* translateCuSizeIdx(int cuSize){
+    if(cuSize==_64x64)
+        return "64x64";
+    else if(cuSize==_32x32)
+        return "32x32";
+    else if(cuSize==_16x16)
+        return "16x16";
+    else    
+        return "ERROR";
+}
+
 // Read data from memory objects into arrays
 void readMemobjsIntoArray_ReducedBoundaries(cl_command_queue command_queue, int nCTUs, cl_mem redT_64x64_memObj, cl_mem redL_64x64_memObj, cl_mem redT_32x32_memObj, cl_mem redL_32x32_memObj, cl_mem redT_16x16_memObj, cl_mem redL_16x16_memObj, short *return_redT_64x64, short *return_redL_64x64, short *return_redT_32x32, short *return_redL_32x32, short *return_redT_16x16, short *return_redL_16x16){
     int error;
@@ -298,6 +309,38 @@ void readMemobjsIntoArray(cl_command_queue command_queue, int numPredictions, in
     clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
     nanoSeconds += read_time_end-read_time_start;
     probe_error(error, (char*)"Error reading returned memory objects into malloc'd arrays\n");
+}
+
+void reportAllDistortionValues(long int *SAD, long int *SATD, int nCTUs){
+    printf("-=-=-=-=-=-=-=-=- DISTORTION RESULTS FOR ALL CTUs -=-=-=-=-=-=-=-=-\n");
+    printf("CTU,cuSize,CU,Mode,SAD,SATD\n");
+    for(int ctu=0; ctu<nCTUs; ctu++){
+        for(int cuSize=0; cuSize<NUM_CU_SIZES; cuSize++){
+            for(int cu=0; cu<cusPerCtu[cuSize]; cu++){
+                for(int mode=0; mode<PREDICTION_MODES_ID2*2; mode++){
+                    // printf("%d,%d,%d,%d,", ctu, cuSize, cu, mode);  //  Report CU size/position info
+                    printf("%d,%s,%d,%d,", ctu, translateCuSizeIdx(cuSize), cu, mode);  //  Report CU size/position info
+                    printf("%ld,", SAD[ ctu*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+                    printf("%ld\n", SATD[ ctu*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+                }
+            }
+        }
+    }
+}
+
+void reportTargetDistortionValues(long int *SAD, long int *SATD, int nCTUs, int targetCTU){
+    printf("-=-=-=-=-=-=-=-=- DISTORTION RESULTS FOR CTU %d -=-=-=-=-=-=-=-=-\n", targetCTU);
+    printf("CTU,cuSize,CU,Mode,SAD,SATD\n");
+    for(int cuSize=0; cuSize<NUM_CU_SIZES; cuSize++){
+        for(int cu=0; cu<cusPerCtu[cuSize]; cu++){
+            for(int mode=0; mode<PREDICTION_MODES_ID2*2; mode++){
+                // printf("%d,%d,%d,%d,", ctu, cuSize, cu, mode);  //  Report CU size/position info
+                printf("%d,%s,%d,%d,", targetCTU, translateCuSizeIdx(cuSize), cu, mode);  //  Report CU size/position info
+                printf("%ld,", SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+                printf("%ld\n", SATD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+            }
+        }
+    }
 }
 
 void reportTimingResults(){

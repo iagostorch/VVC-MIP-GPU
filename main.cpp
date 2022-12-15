@@ -385,6 +385,7 @@ int main(int argc, char *argv[])
     string exportFileName;
 
     int reportToTerminal = 1;
+    int reportDistortionOnlyTarget = 0;
     int reportToFile = 0;
     int targetCTU = 16;
 
@@ -832,80 +833,12 @@ int main(int argc, char *argv[])
 
     readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD);
 
-    // SAD Results
-    if( 1 && reportToTerminal ){
-        printf("=-=-=-=-=- SAD RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
-        printf("RESULTS FOR 64x64\n");
-        for (int cu = 0; cu < 4; cu++)
-        {
-            printf("CU %d\n", cu);
-            for(int mode=0; mode<12; mode++){
-                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_64x64]*12 + cu*12 + mode ]);
-            }
-            printf("\n");
-        }
-        printf("\n");        
-
-
-        printf("RESULTS FOR 32x32\n");
-        for (int cu = 0; cu < 16; cu++)
-        {
-            printf("CU %d\n", cu);
-            for(int mode=0; mode<12; mode++){
-                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_32x32]*12 + cu*12 + mode ]);
-            }
-            printf("\n");
-        }
-        printf("\n"); 
-
-        printf("RESULTS FOR 16x16\n");
-        for (int cu = 0; cu < 64; cu++)
-        {
-            printf("CU %d\n", cu);
-            for(int mode=0; mode<12; mode++){
-                printf("%ld,", return_SAD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_16x16]*12 + cu*12 + mode ]);
-            }
-            printf("\n");
-        }
-        printf("\n");         
-    }
-
-    // SATD Results
-    if( 1 && reportToTerminal ){
-        printf("=-=-=-=-=- SATD RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
-        printf("RESULTS FOR 64x64\n");
-        for (int cu = 0; cu < 4; cu++)
-        {
-            printf("CU %d\n", cu);
-            for(int mode=0; mode<12; mode++){
-                printf("%ld,", return_SATD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_64x64]*12 + cu*12 + mode ]);
-            }
-            printf("\n");
-        }
-        printf("\n");        
-
-
-        printf("RESULTS FOR 32x32\n");
-        for (int cu = 0; cu < 16; cu++)
-        {
-            printf("CU %d\n", cu);
-            for(int mode=0; mode<12; mode++){
-                printf("%ld,", return_SATD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_32x32]*12 + cu*12 + mode ]);
-            }
-            printf("\n");
-        }
-        printf("\n"); 
-
-        printf("RESULTS FOR 16x16\n");
-        for (int cu = 0; cu < 64; cu++)
-        {
-            printf("CU %d\n", cu);
-            for(int mode=0; mode<12; mode++){
-                printf("%ld,", return_SATD[ targetCTU*TOTAL_CUS_PER_CTU*12 + stridedCusPerCtu[_16x16]*12 + cu*12 + mode ]);
-            }
-            printf("\n");
-        }
-        printf("\n");         
+    // REPORT DISTORTION VALUES TO TERMINAL
+    if(reportToTerminal){
+        if(reportDistortionOnlyTarget)
+            reportTargetDistortionValues(return_SAD, return_SATD, nCTUs, targetCTU);
+        else
+            reportAllDistortionValues(return_SAD, return_SATD, nCTUs);
     }
 
 
