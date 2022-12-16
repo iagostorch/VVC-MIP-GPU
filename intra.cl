@@ -465,7 +465,7 @@ __kernel void initBoundariesSquareSizeId2(__global short *referenceFrame, const 
 // The prediction of all prediction modes is stored in global memory and returned to the host
 // Each WG will process one CTU composed of a single CU size
 // It works for square blocks with SizeId=2 (64x64, 32x32, 16x16)
-__kernel void MIP_squareSizeId2(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global short *redT_64x64, __global short *redL_64x64, __global short *redT_32x32, __global short *redL_32x32, __global short *redT_16x16, __global short *redL_16x16, __global short *refT_64x64, __global short *refL_64x64, __global short *refT_32x32, __global short *refL_32x32, __global short *refT_16x16, __global short *refL_16x16, __global long *SAD, __global short* originalSamples){
+__kernel void MIP_squareSizeId2(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global short *redT_64x64, __global short *redL_64x64, __global short *redT_32x32, __global short *redL_32x32, __global short *redT_16x16, __global short *redL_16x16, __global short *refT_64x64, __global short *refL_64x64, __global short *refT_32x32, __global short *refL_32x32, __global short *refT_16x16, __global short *refL_16x16, __global long *SAD, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL){
     // Variables for indexing work items and work groups
     int gid = get_global_id(0);
     int wg = get_group_id(0);
@@ -487,7 +487,7 @@ __kernel void MIP_squareSizeId2(__global short *reducedPrediction, const int fra
     const short ctuX = 128 * (ctuIdx%ctuColumnsPerFrame);  
     const short ctuY = 128 * (ctuIdx/ctuColumnsPerFrame);
 
-    int boundaryStrideForCtu = cusPerCtu[cuSizeIdx]*BOUNDARY_SIZE_Id2; // Each CU occupy BOUNDARY_SIZE_Id2 (=4) positions in the reduced boundaries buffers
+    int boundaryStrideForCtu = TOTAL_CUS_PER_CTU*BOUNDARY_SIZE_Id2; // Each CU occupy BOUNDARY_SIZE_Id2 (=4) positions in the reduced boundaries buffers
     int currCtuBoundariesIdx = ctuIdx * boundaryStrideForCtu;
 
     // This buffer stores all predicted CUs inside the current CTU, with a single prediction mode
@@ -527,19 +527,9 @@ __kernel void MIP_squareSizeId2(__global short *reducedPrediction, const int fra
 
         for(int pass=0; pass<nPasses; pass++){
             cuIdxInCtu = pass*cusPerPass + floor((float)lid/itemsPerCuInPrediction);
-            // Fetch the redT and redL samples from global memory
-            if(cuWidth == 64){
-                reducedT = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redT_64x64);
-                reducedL = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redL_64x64);
-            }
-            else if(cuWidth == 32){
-                reducedT = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redT_32x32);
-                reducedL = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redL_32x32);
-            }
-            else if(cuWidth == 16){
-                reducedT = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redT_16x16);
-                reducedL = vload4((currCtuBoundariesIdx + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, redL_16x16);
-            }
+
+            reducedT = vload4((currCtuBoundariesIdx + stridedCusPerCtu[cuSizeIdx]*4 + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, unified_redT);
+            reducedL = vload4((currCtuBoundariesIdx + stridedCusPerCtu[cuSizeIdx]*4 + cuIdxInCtu*BOUNDARY_SIZE_Id2)/4, unified_redL);
 
             // Create complete boundaries array based on transposed or not-transposed
             reducedBoundaries = select((short8)(reducedT, reducedL), (short8)(reducedL, reducedT), isTransp);
@@ -636,7 +626,7 @@ __kernel void MIP_squareSizeId2(__global short *reducedPrediction, const int fra
     } // End of current mode
 }
 
-__kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global short *refT_64x64, __global short *refL_64x64, __global short *refT_32x32, __global short *refL_32x32, __global short *refT_16x16, __global short *refL_16x16, __global long *SAD, __global long *SATD, __global short* originalSamples){
+__kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global short *refT_64x64, __global short *refL_64x64, __global short *refT_32x32, __global short *refL_32x32, __global short *refT_16x16, __global short *refL_16x16, __global long *SAD, __global long *SATD, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
     int gid = get_global_id(0);
     int wg = get_group_id(0);
     int lid = get_local_id(0);
@@ -734,39 +724,24 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
         // TODO: We only need the reduced left boundary
         __local int refT[2*64], refL[2*64]; // Complete boundaries of the two CUs being processed
         int topBoundariesIdx, leftBoundariesIdx;
+
         // Points to the current CTU boundaries
-        topBoundariesIdx  = ctuIdx*cuRowsPerCtu*128;
-        leftBoundariesIdx = ctuIdx*cuColumnsPerCtu*128;
+        topBoundariesIdx = ctuIdx * stridedCompleteTopBoundaries[NUM_CU_SIZES];
+        leftBoundariesIdx = ctuIdx * stridedCompleteLeftBoundaries[NUM_CU_SIZES];
 
         // Points to the current CU boundaries
-        topBoundariesIdx  += (currCu/cuColumnsPerCtu)*128 + (currCu%cuColumnsPerCtu)*cuWidth;
-        leftBoundariesIdx += (currCu/cuColumnsPerCtu)*cuColumnsPerCtu*cuHeight + (currCu%cuColumnsPerCtu)*cuHeight;
+        topBoundariesIdx  += stridedCompleteTopBoundaries[cuSizeIdx] + currCu*cuWidth;
+        leftBoundariesIdx += stridedCompleteLeftBoundaries[cuSizeIdx] + currCu*cuHeight;
         
         // Fetch TOP boundaries
         if(lid%itemsPerCuInUpsampling < cuWidth){
-            if(cuSizeIdx==_64x64){
-                refT[cuIdxInIteration*64 + lid%itemsPerCuInUpsampling] = refT_64x64[topBoundariesIdx + lid%itemsPerCuInUpsampling];
-            }
-            else if(cuSizeIdx==_32x32){
-                refT[cuIdxInIteration*64 + lid%itemsPerCuInUpsampling] = refT_32x32[topBoundariesIdx + lid%itemsPerCuInUpsampling];
-            }
-            else if(cuSizeIdx==_16x16){
-                refT[cuIdxInIteration*64 + lid%itemsPerCuInUpsampling] = refT_16x16[topBoundariesIdx + lid%itemsPerCuInUpsampling];
-            }
+            refT[cuIdxInIteration*64 + lid%itemsPerCuInUpsampling] =  unified_refT[topBoundariesIdx + lid%itemsPerCuInUpsampling];
         }
 
         // Fetch LEFT boundaries
         // TODO: We only need the reduced left boundaries. It reduces the number of global memory reads at this point. For the top boundaries we will need the full references
         if(lid%itemsPerCuInUpsampling < cuHeight){
-            if(cuSizeIdx==_64x64){
-                refL[cuIdxInIteration*64 + lid%itemsPerCuInUpsampling] = refL_64x64[leftBoundariesIdx + lid%itemsPerCuInUpsampling];
-            }
-            else if(cuSizeIdx==_32x32){
-                refL[cuIdxInIteration*64 + lid%itemsPerCuInUpsampling] = refL_32x32[leftBoundariesIdx + lid%itemsPerCuInUpsampling];
-            }
-            else if(cuSizeIdx==_16x16){
-                refL[cuIdxInIteration*64 + lid%itemsPerCuInUpsampling] = refL_16x16[leftBoundariesIdx + lid%itemsPerCuInUpsampling];
-            }
+            refL[cuIdxInIteration*64 + lid%itemsPerCuInUpsampling] =  unified_refL[leftBoundariesIdx + lid%itemsPerCuInUpsampling];
         }
         
         /*  TRACE THE BOUNDARIES FOR THE CURRENT CU

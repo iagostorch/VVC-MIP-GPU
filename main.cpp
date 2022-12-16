@@ -398,8 +398,8 @@ int main(int argc, char *argv[])
     // Used to export the kernel results into proper files or the terminal
     string exportFileName;
 
-    int reportToTerminal = 1;
-    int reportDistortionOnlyTarget = 0;
+    int reportToTerminal = 0;
+    int reportDistortionOnlyTarget = 1;
     int reportToFile = 0;
     int targetCTU = 16;
 
@@ -836,6 +836,9 @@ int main(int argc, char *argv[])
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 14, sizeof(cl_mem), (void *)&refL_16x16_memObj);
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 15, sizeof(cl_mem), (void *)&return_SAD_memObj);
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 16, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+    // Unified boundariers
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 17, sizeof(cl_mem), (void *)&redT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 18, sizeof(cl_mem), (void *)&redL_all_memObj);
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
@@ -973,6 +976,11 @@ int main(int argc, char *argv[])
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&return_SAD_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&return_SATD_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 11, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+    // Unified boundariers
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 12, sizeof(cl_mem), (void *)&redT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 13, sizeof(cl_mem), (void *)&redL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 14, sizeof(cl_mem), (void *)&refT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 15, sizeof(cl_mem), (void *)&refL_all_memObj);
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
