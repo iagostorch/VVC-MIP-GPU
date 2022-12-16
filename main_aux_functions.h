@@ -12,9 +12,11 @@ using namespace std;
 
 float writeTime = 0;
 float readTime = 0;
-float readTime_reducedBoundaries = 0;
+float readTime_reducedBoundariesSize = 0;
+float readTime_reducedBoundariesUnified = 0;
 float readTime_reducedPrediction = 0;
-float readTime_completeBoundaries = 0;
+float readTime_completeBoundariesSize = 0;
+float readTime_completeBoundariesUnified = 0;
 float readTime_SAD = 0.0;
 float execTime_reducedBoundaries = 0;
 float execTime_reducedPrediction = 0;
@@ -117,7 +119,7 @@ void readMemobjsIntoArray_ReducedBoundaries(cl_command_queue command_queue, int 
     clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
     nanoSeconds += read_time_end-read_time_start;        
 
-    readTime_reducedBoundaries = nanoSeconds;
+    readTime_reducedBoundariesSize = nanoSeconds;
 }
 
 
@@ -197,7 +199,7 @@ void readMemobjsIntoArray_CompleteBoundaries(cl_command_queue command_queue, int
     clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
     nanoSeconds += read_time_end-read_time_start;
 
-    readTime_completeBoundaries = nanoSeconds;
+    readTime_completeBoundariesSize = nanoSeconds;
 }
 
 // Read data from memory objects into arrays
@@ -348,9 +350,11 @@ void reportTimingResults(){
     printf("TIMING RESULTS (nanoseconds)\n");
     printf("Write,%f\n", writeTime);
     printf("InitBoundaries:  Execution,%f\n", execTime_reducedBoundaries);
-    printf("InitBoundaries:  Read reduced,%f\n", readTime_reducedBoundaries);
-    printf("InitBoundaries:  Read complete,%f\n", readTime_completeBoundaries);
-    
+    printf("InitBoundaries:  Read size-reduced,%f\n", readTime_reducedBoundariesSize);
+    printf("InitBoundaries:  Read size-complete,%f\n", readTime_completeBoundariesSize);
+    printf("InitBoundaries:  Read unified-reduced,%f\n", readTime_reducedBoundariesUnified);
+    printf("InitBoundaries:  Read unified-complete,%f\n", readTime_completeBoundariesUnified);
+
     printf("ReducedPrediction:  Execution,%f\n", execTime_reducedPrediction);
     printf("ReducedPrediction:  Read,%f\n", readTime_reducedPrediction);   
 
@@ -358,3 +362,63 @@ void reportTimingResults(){
     printf("UpsamplePredictionDistortion: Read,%f\n", readTime_SAD); 
     printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n\n");    
 }
+
+
+void readMemobjsIntoArray_UnifiedBoundaries(cl_command_queue command_queue, int nCTUs, cl_mem redT_all_memObj, cl_mem refT_all_memObj, short *return_unified_redT, short *return_unified_refT, cl_mem redL_all_memObj, cl_mem refL_all_memObj, short *return_unified_redL, short *return_unified_refL){
+int error;
+    double nanoSeconds = 0.0;
+    cl_ulong read_time_start, read_time_end;
+    cl_event read_event;
+    
+    error =  clEnqueueReadBuffer(command_queue, redT_all_memObj, CL_TRUE, 0, 
+            nCTUs * TOTAL_CUS_PER_CTU * 4 * sizeof(cl_short), return_unified_redT, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prefiction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;
+
+    error =  clEnqueueReadBuffer(command_queue, redL_all_memObj, CL_TRUE, 0, 
+            nCTUs * TOTAL_CUS_PER_CTU * 4 * sizeof(cl_short), return_unified_redL, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prefiction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;
+
+    readTime_reducedBoundariesUnified = nanoSeconds;
+    nanoSeconds = 0.0;
+
+
+    error =  clEnqueueReadBuffer(command_queue, refT_all_memObj, CL_TRUE, 0, 
+            nCTUs * stridedCompleteTopBoundaries[NUM_CU_SIZES] * sizeof(cl_short), return_unified_refT, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prefiction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;
+
+    error =  clEnqueueReadBuffer(command_queue, refL_all_memObj, CL_TRUE, 0, 
+            nCTUs * stridedCompleteTopBoundaries[NUM_CU_SIZES] * sizeof(cl_short), return_unified_refL, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prefiction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;
+
+    readTime_completeBoundariesUnified = nanoSeconds;
+    nanoSeconds = 0.0;
+}
+

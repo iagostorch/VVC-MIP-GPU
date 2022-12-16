@@ -256,6 +256,20 @@ int main(int argc, char *argv[])
     // These memory objects are used to store intermediate data and debugging information from the kernel
     cl_mem debug_mem_obj;
 
+    // Used for all sizeId=2 CU sizes together
+    cl_mem redT_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                              nCTUs * TOTAL_CUS_PER_CTU * 4 * sizeof(short), NULL, &error_1);
+    cl_mem redL_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                              nCTUs * TOTAL_CUS_PER_CTU * 4 * sizeof(short), NULL, &error_2);    
+    
+    
+    cl_mem refT_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                              nCTUs * stridedCompleteTopBoundaries[NUM_CU_SIZES] * sizeof(short), NULL, &error_3);
+    cl_mem refL_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                              nCTUs * stridedCompleteLeftBoundaries[NUM_CU_SIZES] * sizeof(short), NULL, &error_4);
+
+    error = error || error_1 || error_2 || error_3 || error_4;
+
     //  *4 is the 4 references in each reduced boundary for SizeID=2
     cl_mem redT_64x64_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                               nCTUs * cusPerCtu[_64x64] * 4 * sizeof(short), NULL, &error_1);
@@ -399,6 +413,8 @@ int main(int argc, char *argv[])
     long *return_SATD, *return_SAD;
     short *return_redT_64x64, *return_redL_64x64, *return_redT_32x32, *return_redL_32x32, *return_redT_16x16, *return_redL_16x16;
     short *return_refT_64x64, *return_refL_64x64, *return_refT_32x32, *return_refL_32x32, *return_refT_16x16, *return_refL_16x16;
+    short *return_unified_redT, *return_unified_redL;
+    short *return_unified_refT, *return_unified_refL;
 
     // Debug information returned by kernel
     short *debug_data;
@@ -430,6 +446,12 @@ int main(int argc, char *argv[])
     return_refL_32x32 = (short*) malloc(sizeof(short) * nCTUs * cuColumnsPerCtu[_32x32] * 128);
     return_refT_16x16 = (short*) malloc(sizeof(short) * nCTUs * cuRowsPerCtu[_16x16] * 128);
     return_refL_16x16 = (short*) malloc(sizeof(short) * nCTUs * cuColumnsPerCtu[_16x16] * 128);
+    // Unified boundaries
+    return_unified_redT = (short*) malloc(sizeof(short) * nCTUs * TOTAL_CUS_PER_CTU * 4);
+    return_unified_redL = (short*) malloc(sizeof(short) * nCTUs * TOTAL_CUS_PER_CTU * 4);
+    return_unified_refT = (short*) malloc(sizeof(short) * nCTUs * stridedCompleteTopBoundaries[NUM_CU_SIZES]);
+    return_unified_refL = (short*) malloc(sizeof(short) * nCTUs * stridedCompleteTopBoundaries[NUM_CU_SIZES]);
+
     // Debug information returned by kernel
     debug_data = (short*) malloc(sizeof(short) * nWG*itemsPerWG_upsampleDistortion*4);
 
@@ -481,6 +503,11 @@ int main(int argc, char *argv[])
     error_1 |= clSetKernelArg(kernel_initRefSamples, 12, sizeof(cl_mem), (void *)&refL_32x32_memObj);
     error_1 |= clSetKernelArg(kernel_initRefSamples, 13, sizeof(cl_mem), (void *)&refT_16x16_memObj);
     error_1 |= clSetKernelArg(kernel_initRefSamples, 14, sizeof(cl_mem), (void *)&refL_16x16_memObj);
+    // Combined reduced and complete boundaries for all CU
+    error_1 |= clSetKernelArg(kernel_initRefSamples, 15, sizeof(cl_mem), (void *)&redT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_initRefSamples, 16, sizeof(cl_mem), (void *)&redL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_initRefSamples, 17, sizeof(cl_mem), (void *)&refT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_initRefSamples, 18, sizeof(cl_mem), (void *)&refL_all_memObj);
 
     probe_error(error_1, (char*)"Error setting arguments for the kernel\n");
 
@@ -511,11 +538,17 @@ int main(int argc, char *argv[])
     // Read affine results from memory objects into host arrays
     readMemobjsIntoArray_ReducedBoundaries(command_queue, nCTUs, redT_64x64_memObj, redL_64x64_memObj, redT_32x32_memObj, redL_32x32_memObj, redT_16x16_memObj, redL_16x16_memObj, return_redT_64x64, return_redL_64x64, return_redT_32x32, return_redL_32x32, return_redT_16x16, return_redL_16x16);
     readMemobjsIntoArray_CompleteBoundaries(command_queue, nCTUs, refT_64x64_memObj, refL_64x64_memObj, refT_32x32_memObj, refL_32x32_memObj, refT_16x16_memObj, refL_16x16_memObj, return_refT_64x64, return_refL_64x64, return_refT_32x32, return_refL_32x32, return_refT_16x16, return_refL_16x16);
+    readMemobjsIntoArray_UnifiedBoundaries(command_queue, nCTUs, redT_all_memObj, refT_all_memObj, return_unified_redT, return_unified_refT, redL_all_memObj, refL_all_memObj, return_unified_redL, return_unified_refL);
     
+
+
+    int cuSizeIdx;
+    // ----------------  EXPORT BOUNDARIES FORM SIZE-SPECIFIC BUFFERS
+    //
     // Export the reduced boundaries for all CU sizes inside a target CTU index
-    if (0 && reportToTerminal) {
+    if (1 && reportToTerminal) {
         // Export the reduced boundaries for all CU sizes inside a target CTU index
-        printf("=-=-=-=-=- RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
+        printf("=-=-=-=-=- SIZE-SPECIFIC RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
         printf("=-=-=-=-=- REDUCED TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
         printf("RESULTS FOR 64x64\n");
         for (int cu = 0; cu < 4; cu++)
@@ -558,7 +591,7 @@ int main(int argc, char *argv[])
     }
     
     // Export the complete boundaries for all CU sizes inside a target CTU index
-    if (0 && reportToTerminal) {
+    if (1 && reportToTerminal) {
         // Export the complete boundaries for all CU sizes inside a target CTU index
         printf("=-=-=-=-=- RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
         printf("=-=-=-=-=- COMPLETE TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
@@ -624,6 +657,142 @@ int main(int argc, char *argv[])
         }
     }
     
+    // ----------------  EXPORT BOUNDARIES FORM UNIFIED BUFFERS
+    //
+    // Export the reduced boundaries for all CU sizes inside a target CTU index
+    if(1 && reportToTerminal){
+        printf("=-=-=-=-=- UNIFIED RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
+        printf("=-=-=-=-=- REDUCED TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
+        printf("RESULTS FOR 64x64\n");
+        cuSizeIdx = _64x64;
+        for (int cu = 0; cu < 4; cu++)
+        {
+            printf("CU %d\n", cu);
+            printf("%d,%d,%d,%d,\n", return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        }
+        printf("\n");
+
+        printf("RESULTS FOR 32x32\n");
+        cuSizeIdx = _32x32;
+        for (int cu = 0; cu < 4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            printf("%d,%d,%d,%d,\n", return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        }
+        printf("\n");
+
+        printf("RESULTS FOR 16x16\n");
+        cuSizeIdx = _16x16;
+        for (int cu = 0; cu < 4*4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            printf("%d,%d,%d,%d,\n", return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        }
+        printf("\n");
+
+        printf("=-=-=-=-=- REDUCED LEFT BOUNDARIES RESULTS -=-=-=-=-=\n");
+        printf("RESULTS FOR 64x64\n");
+        cuSizeIdx = _64x64;
+        for (int cu = 0; cu < 4; cu++)
+        {
+            printf("CU %d\n", cu);
+            printf("%d,%d,%d,%d,\n", return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        }
+        printf("\n");
+
+        printf("RESULTS FOR 32x32\n");
+        cuSizeIdx = _32x32;
+        for (int cu = 0; cu < 4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            printf("%d,%d,%d,%d,\n", return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        }
+        printf("\n");
+
+        printf("RESULTS FOR 16x16\n");
+        cuSizeIdx = _16x16;
+        for (int cu = 0; cu < 4*4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            printf("%d,%d,%d,%d,\n", return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        }
+        printf("\n");
+
+    }
+
+    // Export the complete boundaries for all CU sizes inside a target CTU index
+    if (1 && reportToTerminal) {
+        // Export the complete boundaries for all CU sizes inside a target CTU index
+        printf("=-=-=-=-=- UNIFIED RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
+        printf("=-=-=-=-=- COMPLETE TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
+        printf("RESULTS FOR 64x64\n");
+        cuSizeIdx = _64x64;
+        for (int cu = 0; cu < 4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refT[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 32x32\n");
+        cuSizeIdx = _32x32;
+        for (int cu = 0; cu < 4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refT[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 16x16\n");
+        cuSizeIdx = _16x16;
+        for (int cu = 0; cu < 4*4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refT[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+                printf("=-=-=-=-=- COMPLETE TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
+        printf("RESULTS FOR 64x64\n");
+        cuSizeIdx = _64x64;
+        for (int cu = 0; cu < 4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refL[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 32x32\n");
+        cuSizeIdx = _32x32;
+        for (int cu = 0; cu < 4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refL[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 16x16\n");
+        cuSizeIdx = _16x16;
+        for (int cu = 0; cu < 4*4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refL[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+    }
+    
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //
     //          NOW WE OBTAIN THE REDUCED PREDICTION FOR ALL CU SIZES AND PREDICTION MODES
@@ -665,7 +834,6 @@ int main(int argc, char *argv[])
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 12, sizeof(cl_mem), (void *)&refL_32x32_memObj);
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 13, sizeof(cl_mem), (void *)&refT_16x16_memObj);
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 14, sizeof(cl_mem), (void *)&refL_16x16_memObj);
-
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 15, sizeof(cl_mem), (void *)&return_SAD_memObj);
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 16, sizeof(cl_mem), (void *)&referenceFrame_memObj);
 
@@ -695,8 +863,6 @@ int main(int argc, char *argv[])
     readMemobjsIntoArray_reducedPrediction(command_queue, nCTUs, TOTAL_PREDICTION_MODES, return_predictionSignal_memObj,  return_reducedPredictionSignal, return_SAD_memObj, return_SAD);
 
     if( 0 && reportToTerminal ){
-        int cuSizeIdx;
-
         printf("TRACING REDUCED PREDICTION SIGNAL FOR CTU %d\n", targetCTU);
         printf("      RESULTS FOR CUs 64x64\n");
         cuSizeIdx = _64x64;
@@ -834,7 +1000,7 @@ int main(int argc, char *argv[])
     readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD);
 
     // REPORT DISTORTION VALUES TO TERMINAL
-    if(reportToTerminal){
+    if(0 && reportToTerminal){
         if(reportDistortionOnlyTarget)
             reportTargetDistortionValues(return_SAD, return_SATD, nCTUs, targetCTU);
         else
@@ -897,6 +1063,11 @@ int main(int argc, char *argv[])
     error |= clReleaseMemObject(return_SATD_memObj);
     error |= clReleaseMemObject(return_SAD_memObj);
     error |= clReleaseMemObject(debug_mem_obj);
+    error |= clReleaseMemObject(redT_all_memObj);
+    error |= clReleaseMemObject(redL_all_memObj);
+    error |= clReleaseMemObject(refT_all_memObj);
+    error |= clReleaseMemObject(refL_all_memObj);
+
     probe_error(error, (char *)"Error releasing  OpenCL objects\n");
 
     free(source_str);
@@ -918,6 +1089,10 @@ int main(int argc, char *argv[])
     free(return_refT_16x16);
     free(return_refL_16x16);
     free(debug_data);
+    free(return_unified_redT); 
+    free(return_unified_redL);
+    free(return_unified_refT);
+    free(return_unified_refL);
 
     return 0;
 }

@@ -48,3 +48,18 @@ const unsigned char stridedCusPerCtu[4] = {
     0+4+16,     // 16x16
     0+4+16+64   // TOTAL_CUS_PER_CTU
    };
+
+// Used to access the boundaries of a specific CU size inside the unified buffer
+const unsigned short stridedCompleteTopBoundaries[4] = {
+  0,                            // 64x64
+  0 + 4*64,                     // 32x32
+  0 + 4*64 + 16*32,             // 16x16
+  0 + 4*64 + 16*32 + 64*16      // TOTAL_TOP_BOUNDARIES_PER_CTU
+};
+
+const unsigned short stridedCompleteLeftBoundaries[4] = {
+  0,                            // 64x64
+  0 + 4*64,                     // 32x32
+  0 + 4*64 + 16*32,             // 16x16
+  0 + 4*64 + 16*32 + 64*16      // TOTAL_TOP_BOUNDARIES_PER_CTU
+};   
