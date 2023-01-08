@@ -163,6 +163,7 @@ int satd_4x4(short16 original_samples, short16 filtered_samples){
     diff[15] = difference_samples.sf;
 
     /*===== hadamard transform =====*/
+    //        1st
     m[ 0] = diff[ 0] + diff[12];
     m[ 1] = diff[ 1] + diff[13];
     m[ 2] = diff[ 2] + diff[14];
@@ -180,6 +181,7 @@ int satd_4x4(short16 original_samples, short16 filtered_samples){
     m[14] = diff[ 2] - diff[14];
     m[15] = diff[ 3] - diff[15];
 
+    //        2nd
     d[ 0] = m[ 0] + m[ 4];
     d[ 1] = m[ 1] + m[ 5];
     d[ 2] = m[ 2] + m[ 6];
@@ -197,6 +199,7 @@ int satd_4x4(short16 original_samples, short16 filtered_samples){
     d[14] = m[14] - m[10];
     d[15] = m[15] - m[11];
 
+    //        3rd
     m[ 0] = d[ 0] + d[ 3];
     m[ 1] = d[ 1] + d[ 2];
     m[ 2] = d[ 1] - d[ 2];
@@ -214,6 +217,7 @@ int satd_4x4(short16 original_samples, short16 filtered_samples){
     m[14] = d[13] - d[14];
     m[15] = d[12] - d[15];
 
+    //        4th
     d[ 0] = m[ 0] + m[ 1];
     d[ 1] = m[ 0] - m[ 1];
     d[ 2] = m[ 2] + m[ 3];

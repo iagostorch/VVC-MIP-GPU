@@ -398,8 +398,8 @@ int main(int argc, char *argv[])
     // Used to export the kernel results into proper files or the terminal
     string exportFileName;
 
-    int reportToTerminal = 0;
-    int reportDistortionOnlyTarget = 1;
+    int reportToTerminal = 1;
+    int reportDistortionOnlyTarget = 0;
     int reportToFile = 0;
     int targetCTU = 16;
 
@@ -546,7 +546,7 @@ int main(int argc, char *argv[])
     // ----------------  EXPORT BOUNDARIES FORM SIZE-SPECIFIC BUFFERS
     //
     // Export the reduced boundaries for all CU sizes inside a target CTU index
-    if (1 && reportToTerminal) {
+    if (0 && reportToTerminal) {
         // Export the reduced boundaries for all CU sizes inside a target CTU index
         printf("=-=-=-=-=- SIZE-SPECIFIC RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
         printf("=-=-=-=-=- REDUCED TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
@@ -591,7 +591,7 @@ int main(int argc, char *argv[])
     }
     
     // Export the complete boundaries for all CU sizes inside a target CTU index
-    if (1 && reportToTerminal) {
+    if (0 && reportToTerminal) {
         // Export the complete boundaries for all CU sizes inside a target CTU index
         printf("=-=-=-=-=- RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
         printf("=-=-=-=-=- COMPLETE TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
@@ -660,68 +660,68 @@ int main(int argc, char *argv[])
     // ----------------  EXPORT BOUNDARIES FORM UNIFIED BUFFERS
     //
     // Export the reduced boundaries for all CU sizes inside a target CTU index
-    if(1 && reportToTerminal){
-        printf("=-=-=-=-=- UNIFIED RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
-        printf("=-=-=-=-=- REDUCED TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
-        printf("RESULTS FOR 64x64\n");
-        cuSizeIdx = _64x64;
-        for (int cu = 0; cu < 4; cu++)
-        {
-            printf("CU %d\n", cu);
-            printf("%d,%d,%d,%d,\n", return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
-        }
-        printf("\n");
+    if(0 && reportToTerminal){
+        // printf("=-=-=-=-=- UNIFIED RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
+        // printf("=-=-=-=-=- REDUCED TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
+        // printf("RESULTS FOR 64x64\n");
+        // cuSizeIdx = _64x64;
+        // for (int cu = 0; cu < 4; cu++)
+        // {
+        //     printf("CU %d\n", cu);
+        //     printf("%d,%d,%d,%d,\n", return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        // }
+        // printf("\n");
 
-        printf("RESULTS FOR 32x32\n");
-        cuSizeIdx = _32x32;
-        for (int cu = 0; cu < 4*4; cu++)
-        {
-            printf("CU %d\n", cu);
-            printf("%d,%d,%d,%d,\n", return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
-        }
-        printf("\n");
+        // printf("RESULTS FOR 32x32\n");
+        // cuSizeIdx = _32x32;
+        // for (int cu = 0; cu < 4*4; cu++)
+        // {
+        //     printf("CU %d\n", cu);
+        //     printf("%d,%d,%d,%d,\n", return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        // }
+        // printf("\n");
 
-        printf("RESULTS FOR 16x16\n");
-        cuSizeIdx = _16x16;
-        for (int cu = 0; cu < 4*4*4; cu++)
-        {
-            printf("CU %d\n", cu);
-            printf("%d,%d,%d,%d,\n", return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
-        }
-        printf("\n");
+        // printf("RESULTS FOR 16x16\n");
+        // cuSizeIdx = _16x16;
+        // for (int cu = 0; cu < 4*4*4; cu++)
+        // {
+        //     printf("CU %d\n", cu);
+        //     printf("%d,%d,%d,%d,\n", return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        // }
+        // printf("\n");
 
-        printf("=-=-=-=-=- REDUCED LEFT BOUNDARIES RESULTS -=-=-=-=-=\n");
-        printf("RESULTS FOR 64x64\n");
-        cuSizeIdx = _64x64;
-        for (int cu = 0; cu < 4; cu++)
-        {
-            printf("CU %d\n", cu);
-            printf("%d,%d,%d,%d,\n", return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
-        }
-        printf("\n");
+        // printf("=-=-=-=-=- REDUCED LEFT BOUNDARIES RESULTS -=-=-=-=-=\n");
+        // printf("RESULTS FOR 64x64\n");
+        // cuSizeIdx = _64x64;
+        // for (int cu = 0; cu < 4; cu++)
+        // {
+        //     printf("CU %d\n", cu);
+        //     printf("%d,%d,%d,%d,\n", return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        // }
+        // printf("\n");
 
-        printf("RESULTS FOR 32x32\n");
-        cuSizeIdx = _32x32;
-        for (int cu = 0; cu < 4*4; cu++)
-        {
-            printf("CU %d\n", cu);
-            printf("%d,%d,%d,%d,\n", return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
-        }
-        printf("\n");
+        // printf("RESULTS FOR 32x32\n");
+        // cuSizeIdx = _32x32;
+        // for (int cu = 0; cu < 4*4; cu++)
+        // {
+        //     printf("CU %d\n", cu);
+        //     printf("%d,%d,%d,%d,\n", return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        // }
+        // printf("\n");
 
-        printf("RESULTS FOR 16x16\n");
-        cuSizeIdx = _16x16;
-        for (int cu = 0; cu < 4*4*4; cu++)
-        {
-            printf("CU %d\n", cu);
-            printf("%d,%d,%d,%d,\n", return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
-        }
-        printf("\n");
+        // printf("RESULTS FOR 16x16\n");
+        // cuSizeIdx = _16x16;
+        // for (int cu = 0; cu < 4*4*4; cu++)
+        // {
+        //     printf("CU %d\n", cu);
+        //     printf("%d,%d,%d,%d,\n", return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], return_unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        // }
+        // printf("\n");
 
     }
 
     // Export the complete boundaries for all CU sizes inside a target CTU index
-    if (1 && reportToTerminal) {
+    if (0 && reportToTerminal) {
         // Export the complete boundaries for all CU sizes inside a target CTU index
         printf("=-=-=-=-=- UNIFIED RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % 15), 128 * (targetCTU / 15));
         printf("=-=-=-=-=- COMPLETE TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
@@ -1008,7 +1008,7 @@ int main(int argc, char *argv[])
     readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD);
 
     // REPORT DISTORTION VALUES TO TERMINAL
-    if(0 && reportToTerminal){
+    if(1 && reportToTerminal){
         if(reportDistortionOnlyTarget)
             reportTargetDistortionValues(return_SAD, return_SATD, nCTUs, targetCTU);
         else
