@@ -5,6 +5,7 @@
 #include <iostream> 
 #include <sstream> 
 #include <fstream> 
+#include <math.h>
 
 #include "constants.h"
 
@@ -440,3 +441,84 @@ void readMemobjsIntoArray_UnifiedBoundaries(cl_command_queue command_queue, int 
     nanoSeconds = 0.0;
 }
 
+
+void reportReducedBoundariesTargetCtu(short *unified_redT, short *unified_redL, int targetCTU, int frameWidth, int frameHeight){
+    printf("=-=-=-=-=- UNIFIED RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % (int) ceil(frameWidth/128)), 128 * (targetCTU / (int) ceil(frameWidth/128)));
+    
+    printf("=-=-=-=-=- REDUCED TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
+    for(int cuSizeIdx=0; cuSizeIdx<NUM_CU_SIZES; cuSizeIdx++){
+        printf("RESULTS FOR %s\n", translateCuSizeIdx(cuSizeIdx));
+        for (int cu = 0; cu < cusPerCtu[cuSizeIdx]; cu++){
+            printf("CU %d\n", cu);
+            printf("%d,%d,%d,%d,\n", unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        }
+        printf("\n");
+    }
+
+    printf("=-=-=-=-=- REDUCED LEFT BOUNDARIES RESULTS -=-=-=-=-=\n");
+    for(int cuSizeIdx=0; cuSizeIdx<NUM_CU_SIZES; cuSizeIdx++){
+        printf("RESULTS FOR %s\n", translateCuSizeIdx(cuSizeIdx));
+        for (int cu = 0; cu < cusPerCtu[cuSizeIdx]; cu++){
+            printf("CU %d\n", cu);
+            printf("%d,%d,%d,%d,\n", unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        }
+        printf("\n");
+    }
+}
+
+void reportCompleteBoundariesTargetCtu(short *unified_refT, short *unified_refL, int targetCTU, int frameWidth, int frameHeight){
+    printf("=-=-=-=-=- UNIFIED RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % (int) ceil(frameWidth/128)), 128 * (targetCTU / (int) ceil(frameWidth/128)));
+    
+    printf("=-=-=-=-=- COMPLETE TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
+    for(int cuSizeIdx=0; cuSizeIdx<NUM_CU_SIZES; cuSizeIdx++){
+        printf("RESULTS FOR %s\n", translateCuSizeIdx(cuSizeIdx));
+        for (int cu = 0; cu < cusPerCtu[cuSizeIdx]; cu++){
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", unified_refT[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
+
+    for(int cuSizeIdx=0; cuSizeIdx<NUM_CU_SIZES; cuSizeIdx++){
+        printf("RESULTS FOR %s\n", translateCuSizeIdx(cuSizeIdx));
+        for (int cu = 0; cu < cusPerCtu[cuSizeIdx]; cu++){
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<heights[cuSizeIdx]; sample++){
+                printf("%d,", unified_refL[targetCTU*stridedCompleteLeftBoundaries[NUM_CU_SIZES] + stridedCompleteLeftBoundaries[cuSizeIdx] + cu*heights[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
+}
+
+
+void reportReducedPredictionTargetCtu(short *reducedPrediction, int targetCTU, int frameWidth, int frameHeight){
+    printf("TRACING REDUCED PREDICTION SIGNAL FOR CTU %d\n", targetCTU);
+    for(int cuSizeIdx=0; cuSizeIdx<NUM_CU_SIZES; cuSizeIdx++){
+        printf("      RESULTS FOR CUs %s\n", translateCuSizeIdx(cuSizeIdx));
+        for(int cu=0; cu<cusPerCtu[cuSizeIdx]; cu++){
+            for(int m=0; m<PREDICTION_MODES_ID2*2; m++){
+                int ctuIdx = targetCTU*TOTAL_CUS_PER_CTU*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU size in global buffer
+                int currCuModeIdx = ctuIdx + stridedCusPerCtu[cuSizeIdx]*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU specifically in global buffer
+                currCuModeIdx += cu*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of the current mode in global buffer
+                currCuModeIdx += m*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2;
+
+                printf("===>>> Size %d  ||  CU %d, MODE %d\n", cuSizeIdx, cu, m);
+                for(int i=0; i<8; i++){
+                    for(int j=0; j<8; j++){
+                        printf("%d,", reducedPrediction[currCuModeIdx + i*8 + j]);
+                    }
+                    printf("\n");
+                }
+                printf("\n");
+            }
+        }
+    }
+}
