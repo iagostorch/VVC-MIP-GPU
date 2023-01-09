@@ -747,6 +747,50 @@ int main(int argc, char *argv[])
             printf("\n");
         }
 
+        printf("RESULTS FOR 32x16\n");
+        cuSizeIdx = _32x16;
+        for (int cu = 0; cu < 4*4*2; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refT[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 16x32\n");
+        cuSizeIdx = _16x32;
+        for (int cu = 0; cu < 4*4*2; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refT[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 32x8\n");
+        cuSizeIdx = _32x8;
+        for (int cu = 0; cu < 4*4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refT[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 8x32\n");
+        cuSizeIdx = _8x32;
+        for (int cu = 0; cu < 4*4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refT[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
         printf("RESULTS FOR 16x16\n");
         cuSizeIdx = _16x16;
         for (int cu = 0; cu < 4*4*4; cu++)
@@ -758,7 +802,30 @@ int main(int argc, char *argv[])
             printf("\n");
         }
 
-                printf("=-=-=-=-=- COMPLETE TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
+        printf("RESULTS FOR 16x8\n");
+        cuSizeIdx = _16x8;
+        for (int cu = 0; cu < 4*4*4*2; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refT[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 8x16\n");
+        cuSizeIdx = _8x16;
+        for (int cu = 0; cu < 4*4*4*2; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refT[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        
+        printf("=-=-=-=-=- COMPLETE TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
         printf("RESULTS FOR 64x64\n");
         cuSizeIdx = _64x64;
         for (int cu = 0; cu < 4; cu++)
@@ -781,9 +848,75 @@ int main(int argc, char *argv[])
             printf("\n");
         }
 
+        printf("RESULTS FOR 32x16\n");
+        cuSizeIdx = _32x16;
+        for (int cu = 0; cu < 4*4*2; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refL[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 16x32\n");
+        cuSizeIdx = _16x32;
+        for (int cu = 0; cu < 4*4*2; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refL[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 32x8\n");
+        cuSizeIdx = _32x8;
+        for (int cu = 0; cu < 4*4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refL[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 8x32\n");
+        cuSizeIdx = _8x32;
+        for (int cu = 0; cu < 4*4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refL[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
         printf("RESULTS FOR 16x16\n");
         cuSizeIdx = _16x16;
         for (int cu = 0; cu < 4*4*4; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refL[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 16x8\n");
+        cuSizeIdx = _16x8;
+        for (int cu = 0; cu < 4*4*4*2; cu++)
+        {
+            printf("CU %d\n", cu);
+            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
+                printf("%d,", return_unified_refL[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            }
+            printf("\n");
+        }
+
+        printf("RESULTS FOR 8x16\n");
+        cuSizeIdx = _8x16;
+        for (int cu = 0; cu < 4*4*4*2; cu++)
         {
             printf("CU %d\n", cu);
             for(int sample=0; sample<widths[cuSizeIdx]; sample++){
@@ -913,6 +1046,99 @@ int main(int argc, char *argv[])
             }
         } 
 
+        printf("      RESULTS FOR CUs 32x16\n");
+        cuSizeIdx = _32x16;
+        for(int cu=0; cu<cusPerCtu[cuSizeIdx]; cu++){
+            for(int m=0; m<12; m++){
+                int ctuIdx = targetCTU*TOTAL_CUS_PER_CTU*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU size in global buffer
+                int currCuModeIdx = ctuIdx + stridedCusPerCtu[cuSizeIdx]*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU specifically in global buffer
+                currCuModeIdx += cu*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of the current mode in global buffer
+                currCuModeIdx += m*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2;
+
+                printf("===>>> Size %d  ||  CU %d, MODE %d\n", cuSizeIdx, cu, m);
+                for(int i=0; i<8; i++){
+                    for(int j=0; j<8; j++){
+                        printf("%d,", return_reducedPredictionSignal[currCuModeIdx + i*8 + j]);
+                    }
+                    printf("\n");
+                }
+                printf("\n");
+            }
+        } 
+
+        printf("      RESULTS FOR CUs 16x32\n");
+        cuSizeIdx = _16x32;
+        for(int cu=0; cu<cusPerCtu[cuSizeIdx]; cu++){
+            for(int m=0; m<12; m++){
+                int ctuIdx = targetCTU*TOTAL_CUS_PER_CTU*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU size in global buffer
+                int currCuModeIdx = ctuIdx + stridedCusPerCtu[cuSizeIdx]*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU specifically in global buffer
+                currCuModeIdx += cu*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of the current mode in global buffer
+                currCuModeIdx += m*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2;
+
+                printf("===>>> Size %d  ||  CU %d, MODE %d\n", cuSizeIdx, cu, m);
+                for(int i=0; i<8; i++){
+                    for(int j=0; j<8; j++){
+                        printf("%d,", return_reducedPredictionSignal[currCuModeIdx + i*8 + j]);
+                    }
+                    printf("\n");
+                }
+                printf("\n");
+            }
+        } 
+
+
+        printf("      RESULTS FOR CUs 32x8\n");
+        cuSizeIdx = _32x8;
+        for(int cu=0; cu<cusPerCtu[cuSizeIdx]; cu++){
+            for(int m=0; m<12; m++){
+                int ctuIdx = targetCTU*TOTAL_CUS_PER_CTU*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU size in global buffer
+                int currCuModeIdx = ctuIdx + stridedCusPerCtu[cuSizeIdx]*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU specifically in global buffer
+                currCuModeIdx += cu*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of the current mode in global buffer
+                currCuModeIdx += m*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2;
+
+                printf("===>>> Size %d  ||  CU %d, MODE %d\n", cuSizeIdx, cu, m);
+                for(int i=0; i<8; i++){
+                    for(int j=0; j<8; j++){
+                        printf("%d,", return_reducedPredictionSignal[currCuModeIdx + i*8 + j]);
+                    }
+                    printf("\n");
+                }
+                printf("\n");
+            }
+        } 
+
+        printf("      RESULTS FOR CUs 8x32\n");
+        cuSizeIdx = _8x32;
+        for(int cu=0; cu<cusPerCtu[cuSizeIdx]; cu++){
+            for(int m=0; m<12; m++){
+                int ctuIdx = targetCTU*TOTAL_CUS_PER_CTU*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU size in global buffer
+                int currCuModeIdx = ctuIdx + stridedCusPerCtu[cuSizeIdx]*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU specifically in global buffer
+                currCuModeIdx += cu*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of the current mode in global buffer
+                currCuModeIdx += m*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2;
+
+                printf("===>>> Size %d  ||  CU %d, MODE %d\n", cuSizeIdx, cu, m);
+                for(int i=0; i<8; i++){
+                    for(int j=0; j<8; j++){
+                        printf("%d,", return_reducedPredictionSignal[currCuModeIdx + i*8 + j]);
+                    }
+                    printf("\n");
+                }
+                printf("\n");
+            }
+        } 
+
         printf("      RESULTS FOR CUs 16x16\n");
         cuSizeIdx = _16x16;
         for(int cu=0; cu<cusPerCtu[cuSizeIdx]; cu++){
@@ -934,7 +1160,53 @@ int main(int argc, char *argv[])
                 }
                 printf("\n");
             }
-        }                 
+        }   
+
+        printf("      RESULTS FOR CUs 16x8\n");
+        cuSizeIdx = _16x8;
+        for(int cu=0; cu<cusPerCtu[cuSizeIdx]; cu++){
+            for(int m=0; m<12; m++){
+                int ctuIdx = targetCTU*TOTAL_CUS_PER_CTU*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU size in global buffer
+                int currCuModeIdx = ctuIdx + stridedCusPerCtu[cuSizeIdx]*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU specifically in global buffer
+                currCuModeIdx += cu*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of the current mode in global buffer
+                currCuModeIdx += m*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2;
+
+                printf("===>>> Size %d  ||  CU %d, MODE %d\n", cuSizeIdx, cu, m);
+                for(int i=0; i<8; i++){
+                    for(int j=0; j<8; j++){
+                        printf("%d,", return_reducedPredictionSignal[currCuModeIdx + i*8 + j]);
+                    }
+                    printf("\n");
+                }
+                printf("\n");
+            }
+        }           
+
+        printf("      RESULTS FOR CUs 8x16\n");
+        cuSizeIdx = _8x16;
+        for(int cu=0; cu<cusPerCtu[cuSizeIdx]; cu++){
+            for(int m=0; m<12; m++){
+                int ctuIdx = targetCTU*TOTAL_CUS_PER_CTU*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU size in global buffer
+                int currCuModeIdx = ctuIdx + stridedCusPerCtu[cuSizeIdx]*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of this CU specifically in global buffer
+                currCuModeIdx += cu*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                // Point to start of the current mode in global buffer
+                currCuModeIdx += m*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2;
+
+                printf("===>>> Size %d  ||  CU %d, MODE %d\n", cuSizeIdx, cu, m);
+                for(int i=0; i<8; i++){
+                    for(int j=0; j<8; j++){
+                        printf("%d,", return_reducedPredictionSignal[currCuModeIdx + i*8 + j]);
+                    }
+                    printf("\n");
+                }
+                printf("\n");
+            }
+        }    
     }
 
 

@@ -681,8 +681,8 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
     __local short localOriginalSamples[2][64*64];
     __local int localSAD[256], localSATD[256];
 
-    __local int localSadEntireCtu[64][PREDICTION_MODES_ID2*2];
-    __local int localSatdEntireCtu[64][PREDICTION_MODES_ID2*2];
+    __local int localSadEntireCtu[MAX_CUS_PER_CTU][PREDICTION_MODES_ID2*2];
+    __local int localSatdEntireCtu[MAX_CUS_PER_CTU][PREDICTION_MODES_ID2*2];
 
     // This points to the current CTU in the global reduced prediction buffer
     const int currCtuPredictionIdx = ctuIdx*TOTAL_CUS_PER_CTU*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
@@ -802,7 +802,7 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
             //      START WITH HORIZONTAL UPSAMPLING...
 
             // TODO: This should be corrected when we process CUs with less samples than 16x16 (i.e., 16x8 and 8x16)
-            int nPassesHorizontalUpsampling = (cuWidth*REDUCED_PRED_SIZE_Id2)/itemsPerCuInUpsampling;
+            int nPassesHorizontalUpsampling = max(1, (cuWidth*REDUCED_PRED_SIZE_Id2)/itemsPerCuInUpsampling);
 
             for(int pass=0; pass<nPassesHorizontalUpsampling; pass++){
                 int idx = pass*itemsPerCuInUpsampling + lid%itemsPerCuInUpsampling;
@@ -860,7 +860,7 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
                 yPosInCtu = (currCu/cuColumnsPerCtu)*cuHeight + yPosInCu;
 
                 isMiddle = yPosInCu>=upsamplingVertical; // In this case, the top boundary is not used
-                offsetInStride = yPosInCu%upsamplingHorizontal+1; // Position inside one window where samples are being interpolated. BeforeReference has stride=0, first interpolated sample has stride=1            }
+                offsetInStride = yPosInCu%upsamplingVertical+1; // Position inside one window where samples are being interpolated. BeforeReference has stride=0, first interpolated sample has stride=1            }
 
                 // For the first couple of sample columns, the "before" reference is the top boundaries buffer
                 if(isMiddle == 0){
@@ -879,13 +879,11 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
             }
 
             barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish the vertical upsampling
-            
-           
-            
+
             /* TRACE COMPLETE UPSAMPLING
             if(1 && ctuIdx==16 && cuSizeIdx==_64x64 && currCu==3 && mode==0 && lid%itemsPerCuInUpsampling==0){
                 printf("UPSAMPLED PREDICTION,CTU=%d,WH=%dx%d,CU=%d\n", ctuIdx, cuWidth, cuHeight, currCu);
-                for(int i=0; i<cuHeight-3; i++){
+                for(int i=0; i<cuHeight; i++){
                     for(int j=0; j<cuWidth; j++){
                         printf("%d,", localUpsampledPrediction[cuIdxInIteration][i*cuWidth+j]);
                     }

@@ -36,8 +36,25 @@ const char* translateCuSizeIdx(int cuSize){
         return "64x64";
     else if(cuSize==_32x32)
         return "32x32";
+    
+    else if(cuSize==_32x16)
+        return "32x16";
+    else if(cuSize==_16x32)
+        return "16x32";   
+
+    else if(cuSize==_32x8)
+        return "32x8";
+    else if(cuSize==_8x32)
+        return "8x32";
+
     else if(cuSize==_16x16)
         return "16x16";
+
+    else if(cuSize==_16x8)
+        return "16x8";
+    else if(cuSize==_8x16)
+        return "8x16";
+
     else    
         return "ERROR";
 }
@@ -365,7 +382,8 @@ void reportTimingResults(){
 
 
 void readMemobjsIntoArray_UnifiedBoundaries(cl_command_queue command_queue, int nCTUs, cl_mem redT_all_memObj, cl_mem refT_all_memObj, short *return_unified_redT, short *return_unified_refT, cl_mem redL_all_memObj, cl_mem refL_all_memObj, short *return_unified_redL, short *return_unified_refL){
-int error;
+    
+    int error;
     double nanoSeconds = 0.0;
     cl_ulong read_time_start, read_time_end;
     cl_event read_event;
@@ -408,7 +426,7 @@ int error;
     nanoSeconds += read_time_end-read_time_start;
 
     error =  clEnqueueReadBuffer(command_queue, refL_all_memObj, CL_TRUE, 0, 
-            nCTUs * stridedCompleteTopBoundaries[NUM_CU_SIZES] * sizeof(cl_short), return_unified_refL, 0, NULL, &read_event);
+            nCTUs * stridedCompleteLeftBoundaries[NUM_CU_SIZES] * sizeof(cl_short), return_unified_refL, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return prefiction\n");
     error = clWaitForEvents(1, &read_event);
     probe_error(error, (char*)"Error waiting for read events\n");
