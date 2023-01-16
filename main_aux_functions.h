@@ -60,6 +60,120 @@ const char* translateCuSizeIdx(int cuSize){
         return "ERROR";
 }
 
+
+const char* translateCuSizeIdx_NA(int cuSize){
+    if(cuSize==_NA_32x16)
+        return "NA_32x16";
+    else if(cuSize==_NA_16x32)
+        return "NA_16x32";
+    else if(cuSize==_NA_32x8_G1)
+        return "NA_32x8_G1";
+    else if(cuSize==_NA_32x8_G2)
+        return "NA_32x8_G2";
+    else if(cuSize==_NA_8x32_G1)
+        return "NA_8x32_G1";
+    else if(cuSize==_NA_8x32_G2)
+        return "NA_8x32_G2";
+
+    else if(cuSize==_NA_16x16_G1)
+        return "NA_16x16_G1";
+    else if(cuSize==_NA_16x16_G2)
+        return "NA_16x16_G2";
+    else if(cuSize==_NA_16x16_G3)
+        return "NA_16x16_G3";
+
+    else if(cuSize==_NA_16x8_G1)
+        return "NA_16x8_G1";
+    else if(cuSize==_NA_16x8_G2)
+        return "NA_16x8_G2";
+    else if(cuSize==_NA_16x8_G3)
+        return "NA_16x8_G3";
+    else if(cuSize==_NA_16x8_G4)
+        return "NA_16x8_G4";
+    else if(cuSize==_NA_16x8_G5)
+        return "NA_16x8_G5";
+
+    else if(cuSize==_NA_8x16_G1)
+        return "NA_8x16_G1";
+    else if(cuSize==_NA_8x16_G2)
+        return "NA_8x16_G2";
+    else if(cuSize==_NA_8x16_G3)
+        return "NA_8x16_G3";
+    else if(cuSize==_NA_8x16_G4)
+        return "NA_8x16_G4";
+    else if(cuSize==_NA_8x16_G5)
+        return "NA_8x16_G5";
+
+    else    
+        return "ERROR";
+}
+
+const char* translateCuSizeIdx_ALL(int cuSize){
+    // ALIGNED
+    if(cuSize==ALL_AL_64x64)
+        return "ALL_AL_64x64";
+    else if(cuSize==ALL_AL_32x32)
+        return "ALL_AL_32x32";
+    else if(cuSize==ALL_AL_32x16)
+        return "ALL_AL_32x16";
+    else if(cuSize==ALL_AL_16x32)
+        return "ALL_AL_16x32";
+    else if(cuSize==ALL_AL_32x8)
+        return "ALL_AL_32x8";
+    else if(cuSize==ALL_AL_8x32)
+        return "ALL_AL_8x32";
+    else if(cuSize==ALL_AL_16x16)
+        return "ALL_AL_16x16";
+    else if(cuSize==ALL_AL_16x8)
+        return "ALL_AL_16x8";
+    else if(cuSize==ALL_AL_8x16)
+        return "ALL_AL_8x16";    
+
+    // NOT ALIGNED
+    else if(cuSize==ALL_NA_32x16)
+        return "ALL_NA_32x16";
+    else if(cuSize==ALL_NA_16x32)
+        return "ALL_NA_16x32";
+    else if(cuSize==ALL_NA_32x8_G1)
+        return "ALL_NA_32x8_G1";
+    else if(cuSize==ALL_NA_32x8_G2)
+        return "ALL_NA_32x8_G2";
+    else if(cuSize==ALL_NA_8x32_G1)
+        return "ALL_NA_8x32_G1";
+    else if(cuSize==ALL_NA_8x32_G2)
+        return "ALL_NA_8x32_G2";
+    else if(cuSize==ALL_NA_16x16_G1)
+        return "ALL_NA_16x16_G1";
+    else if(cuSize==ALL_NA_16x16_G2)
+        return "ALL_NA_16x16_G2";
+    else if(cuSize==ALL_NA_16x16_G3)
+        return "ALL_NA_16x16_G3";
+    else if(cuSize==ALL_NA_16x8_G1)
+        return "ALL_NA_16x8_G1";
+    else if(cuSize==ALL_NA_16x8_G2)
+        return "ALL_NA_16x8_G2";
+    else if(cuSize==ALL_NA_16x8_G3)
+        return "ALL_NA_16x8_G3";
+    else if(cuSize==ALL_NA_16x8_G4)
+        return "ALL_NA_16x8_G4";
+    else if(cuSize==ALL_NA_16x8_G5)
+        return "ALL_NA_16x8_G5";
+    else if(cuSize==ALL_NA_8x16_G1)
+        return "ALL_NA_8x16_G1";
+    else if(cuSize==ALL_NA_8x16_G2)
+        return "ALL_NA_8x16_G2";
+    else if(cuSize==ALL_NA_8x16_G3)
+        return "ALL_NA_8x16_G3";
+    else if(cuSize==ALL_NA_8x16_G4)
+        return "ALL_NA_8x16_G4";
+    else if(cuSize==ALL_NA_8x16_G5)
+        return "ALL_NA_8x16_G5";
+
+    else    
+        return "ERROR";
+}
+
+
 // Read data from memory objects into arrays
 void readMemobjsIntoArray_ReducedBoundaries(cl_command_queue command_queue, int nCTUs, cl_mem redT_64x64_memObj, cl_mem redL_64x64_memObj, cl_mem redT_32x32_memObj, cl_mem redL_32x32_memObj, cl_mem redT_16x16_memObj, cl_mem redL_16x16_memObj, short *return_redT_64x64, short *return_redL_64x64, short *return_redT_32x32, short *return_redL_32x32, short *return_redT_16x16, short *return_redL_16x16){
     int error;
@@ -390,8 +504,8 @@ void readMemobjsIntoArray_UnifiedBoundaries(cl_command_queue command_queue, int 
     cl_event read_event;
     
     error =  clEnqueueReadBuffer(command_queue, redT_all_memObj, CL_TRUE, 0, 
-            nCTUs * TOTAL_CUS_PER_CTU * 4 * sizeof(cl_short), return_unified_redT, 0, NULL, &read_event);
-    probe_error(error, (char*)"Error reading return prefiction\n");
+            nCTUs * ALL_TOTAL_CUS_PER_CTU * 4 * sizeof(cl_short), return_unified_redT, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return reduced boundaries\n");
     error = clWaitForEvents(1, &read_event);
     probe_error(error, (char*)"Error waiting for read events\n");
     error = clFinish(command_queue);
@@ -401,8 +515,8 @@ void readMemobjsIntoArray_UnifiedBoundaries(cl_command_queue command_queue, int 
     nanoSeconds += read_time_end-read_time_start;
 
     error =  clEnqueueReadBuffer(command_queue, redL_all_memObj, CL_TRUE, 0, 
-            nCTUs * TOTAL_CUS_PER_CTU * 4 * sizeof(cl_short), return_unified_redL, 0, NULL, &read_event);
-    probe_error(error, (char*)"Error reading return prefiction\n");
+            nCTUs * ALL_TOTAL_CUS_PER_CTU * 4 * sizeof(cl_short), return_unified_redL, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return reduced boundaries\n");
     error = clWaitForEvents(1, &read_event);
     probe_error(error, (char*)"Error waiting for read events\n");
     error = clFinish(command_queue);
@@ -416,8 +530,8 @@ void readMemobjsIntoArray_UnifiedBoundaries(cl_command_queue command_queue, int 
 
 
     error =  clEnqueueReadBuffer(command_queue, refT_all_memObj, CL_TRUE, 0, 
-            nCTUs * stridedCompleteTopBoundaries[NUM_CU_SIZES] * sizeof(cl_short), return_unified_refT, 0, NULL, &read_event);
-    probe_error(error, (char*)"Error reading return prefiction\n");
+            nCTUs * ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES] * sizeof(cl_short), return_unified_refT, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return complete boundaries\n");
     error = clWaitForEvents(1, &read_event);
     probe_error(error, (char*)"Error waiting for read events\n");
     error = clFinish(command_queue);
@@ -427,8 +541,8 @@ void readMemobjsIntoArray_UnifiedBoundaries(cl_command_queue command_queue, int 
     nanoSeconds += read_time_end-read_time_start;
 
     error =  clEnqueueReadBuffer(command_queue, refL_all_memObj, CL_TRUE, 0, 
-            nCTUs * stridedCompleteLeftBoundaries[NUM_CU_SIZES] * sizeof(cl_short), return_unified_refL, 0, NULL, &read_event);
-    probe_error(error, (char*)"Error reading return prefiction\n");
+            nCTUs * ALL_stridedCompleteLeftBoundaries[ALL_NUM_CU_SIZES] * sizeof(cl_short), return_unified_refL, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return complete boundaries\n");
     error = clWaitForEvents(1, &read_event);
     probe_error(error, (char*)"Error waiting for read events\n");
     error = clFinish(command_queue);
@@ -442,52 +556,52 @@ void readMemobjsIntoArray_UnifiedBoundaries(cl_command_queue command_queue, int 
 }
 
 
-void reportReducedBoundariesTargetCtu(short *unified_redT, short *unified_redL, int targetCTU, int frameWidth, int frameHeight){
+void reportReducedBoundariesTargetCtu_ALL(short *unified_redT, short *unified_redL, int targetCTU, int frameWidth, int frameHeight){
     printf("=-=-=-=-=- UNIFIED RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % (int) ceil(frameWidth/128)), 128 * (targetCTU / (int) ceil(frameWidth/128)));
     
     printf("=-=-=-=-=- REDUCED TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
-    for(int cuSizeIdx=0; cuSizeIdx<NUM_CU_SIZES; cuSizeIdx++){
-        printf("RESULTS FOR %s\n", translateCuSizeIdx(cuSizeIdx));
-        for (int cu = 0; cu < cusPerCtu[cuSizeIdx]; cu++){
+    for(int cuSizeIdx=0; cuSizeIdx<ALL_NUM_CU_SIZES; cuSizeIdx++){
+        printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
+        for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
             printf("CU %d\n", cu);
-            printf("%d,%d,%d,%d,\n", unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], unified_redT[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+            printf("%d,%d,%d,%d,\n", unified_redT[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], unified_redT[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], unified_redT[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], unified_redT[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
         }
         printf("\n");
     }
 
     printf("=-=-=-=-=- REDUCED LEFT BOUNDARIES RESULTS -=-=-=-=-=\n");
-    for(int cuSizeIdx=0; cuSizeIdx<NUM_CU_SIZES; cuSizeIdx++){
-        printf("RESULTS FOR %s\n", translateCuSizeIdx(cuSizeIdx));
-        for (int cu = 0; cu < cusPerCtu[cuSizeIdx]; cu++){
+    for(int cuSizeIdx=0; cuSizeIdx<ALL_NUM_CU_SIZES; cuSizeIdx++){
+        printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
+        for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
             printf("CU %d\n", cu);
-            printf("%d,%d,%d,%d,\n", unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], unified_redL[targetCTU*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+            printf("%d,%d,%d,%d,\n", unified_redL[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], unified_redL[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], unified_redL[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], unified_redL[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
         }
         printf("\n");
     }
 }
 
-void reportCompleteBoundariesTargetCtu(short *unified_refT, short *unified_refL, int targetCTU, int frameWidth, int frameHeight){
+void reportCompleteBoundariesTargetCtu_ALL(short *unified_refT, short *unified_refL, int targetCTU, int frameWidth, int frameHeight){
     printf("=-=-=-=-=- UNIFIED RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % (int) ceil(frameWidth/128)), 128 * (targetCTU / (int) ceil(frameWidth/128)));
     
     printf("=-=-=-=-=- COMPLETE TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
-    for(int cuSizeIdx=0; cuSizeIdx<NUM_CU_SIZES; cuSizeIdx++){
-        printf("RESULTS FOR %s\n", translateCuSizeIdx(cuSizeIdx));
-        for (int cu = 0; cu < cusPerCtu[cuSizeIdx]; cu++){
+    for(int cuSizeIdx=0; cuSizeIdx<ALL_NUM_CU_SIZES; cuSizeIdx++){
+        printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
+        for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
             printf("CU %d\n", cu);
-            for(int sample=0; sample<widths[cuSizeIdx]; sample++){
-                printf("%d,", unified_refT[targetCTU*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + cu*widths[cuSizeIdx] + sample]);
+            for(int sample=0; sample<ALL_widths[cuSizeIdx]; sample++){
+                printf("%d,", unified_refT[targetCTU*ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES] + ALL_stridedCompleteTopBoundaries[cuSizeIdx] + cu*ALL_widths[cuSizeIdx] + sample]);
             }
             printf("\n");
         }
         printf("\n");
     }
 
-    for(int cuSizeIdx=0; cuSizeIdx<NUM_CU_SIZES; cuSizeIdx++){
-        printf("RESULTS FOR %s\n", translateCuSizeIdx(cuSizeIdx));
-        for (int cu = 0; cu < cusPerCtu[cuSizeIdx]; cu++){
+    for(int cuSizeIdx=0; cuSizeIdx<ALL_NUM_CU_SIZES; cuSizeIdx++){
+        printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
+        for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
             printf("CU %d\n", cu);
-            for(int sample=0; sample<heights[cuSizeIdx]; sample++){
-                printf("%d,", unified_refL[targetCTU*stridedCompleteLeftBoundaries[NUM_CU_SIZES] + stridedCompleteLeftBoundaries[cuSizeIdx] + cu*heights[cuSizeIdx] + sample]);
+            for(int sample=0; sample<ALL_heights[cuSizeIdx]; sample++){
+                printf("%d,", unified_refL[targetCTU*ALL_stridedCompleteLeftBoundaries[ALL_NUM_CU_SIZES] + ALL_stridedCompleteLeftBoundaries[cuSizeIdx] + cu*ALL_heights[cuSizeIdx] + sample]);
             }
             printf("\n");
         }
