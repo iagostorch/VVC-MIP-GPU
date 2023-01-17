@@ -224,7 +224,7 @@ int main(int argc, char *argv[])
     string refLine, refVal, currLine, currVal;
 
     const int FRAME_SIZE = frameWidth*frameHeight;
-    const int nCTUs = 20; //frameHeight==1080 ? 135 : 510; //135 or 510 for 1080p and 2160p  ||  1080p videos have 120 entire CTUs plus 15 partial CTUs || 4k videos have 480 entire CTUs plus 30 partial CTUs
+    const int nCTUs = frameHeight==1080 ? 135 : 510; //135 or 510 for 1080p and 2160p  ||  1080p videos have 120 entire CTUs plus 15 partial CTUs || 4k videos have 480 entire CTUs plus 30 partial CTUs
     const int NUM_PRED_MODES = PREDICTION_MODES_ID2;
     const int TEST_TRANSPOSED_MODES = 1;
     const int TOTAL_PREDICTION_MODES = NUM_PRED_MODES * (TEST_TRANSPOSED_MODES ? 2 : 1);
@@ -362,14 +362,14 @@ int main(int argc, char *argv[])
     string exportFileName;
 
     int enableTerminalReport = 1;
-    int reportReducedBoundaries = 1;
-    int reportCompleteBoundaries = 1;
+    int reportReducedBoundaries = 0;
+    int reportCompleteBoundaries = 0;
     int reportReducedPrediction = 1;
     int reportDistortion = 1;
 
     int reportDistortionOnlyTarget = 0;
     int reportToFile = 0;
-    int targetCTU = 16;
+    int targetCTU = 135;
 
     ///////////////////////////////////////////////////////////////////////////////////////
     /////              THESE DYNAMIC ARRAYS  MUST BE FREED AFTER EXECUTION            /////
@@ -486,13 +486,6 @@ int main(int argc, char *argv[])
             reportCompleteBoundariesTargetCtu_ALL(return_unified_refT, return_unified_refL, targetCTU, frameWidth, frameHeight);
     }
     
-    
-    
-    return 1;
-    
-    
-    
-    
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //
     //          NOW WE OBTAIN THE REDUCED PREDICTION FOR ALL CU SIZES AND PREDICTION MODES
@@ -502,7 +495,7 @@ int main(int argc, char *argv[])
     itemsPerWG = itemsPerWG_obtainReducedPrediction;
 
     // Create kernel
-    kernel_reducedPrediction = clCreateKernel(program, "MIP_SizeId2", &error);
+    kernel_reducedPrediction = clCreateKernel(program, "MIP_SizeId2_ALL", &error);
     probe_error(error, (char *)"Error creating MIP_SizeId2 kernel\n");
     printf("Performing MIP_SizeId2 kernel...\n");
 
@@ -553,7 +546,7 @@ int main(int argc, char *argv[])
 
     if(enableTerminalReport){
         if(reportReducedPrediction)
-            reportReducedPredictionTargetCtu(return_reducedPredictionSignal, targetCTU, frameWidth, frameHeight);
+            reportReducedPredictionTargetCtu_ALL(return_reducedPredictionSignal, targetCTU, frameWidth, frameHeight);
     }
     
 
@@ -566,7 +559,7 @@ int main(int argc, char *argv[])
     itemsPerWG = itemsPerWG_upsampleDistortion;
 
     // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId2", &error);
+    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId2_ALL", &error);
     probe_error(error, (char *)"Error creating upsampleDistortionSizeId2 kernel\n");
     printf("Performing upsampleDistortionSizeId2 kernel...\n");
 
@@ -622,9 +615,9 @@ int main(int argc, char *argv[])
     // REPORT DISTORTION VALUES TO TERMINAL
     if(enableTerminalReport && reportDistortion){
         if(reportDistortionOnlyTarget)
-            reportTargetDistortionValues(return_SAD, return_SATD, nCTUs, targetCTU);
+            reportTargetDistortionValues_ALL(return_SAD, return_SATD, nCTUs, targetCTU);
         else
-            reportAllDistortionValues(return_SAD, return_SATD, nCTUs);
+            reportAllDistortionValues_ALL(return_SAD, return_SATD, nCTUs);
     }
 
 
