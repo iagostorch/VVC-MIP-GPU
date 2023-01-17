@@ -364,11 +364,11 @@ int main(int argc, char *argv[])
     int enableTerminalReport = 1;
     int reportReducedBoundaries = 0;
     int reportCompleteBoundaries = 0;
-    int reportReducedPrediction = 1;
+    int reportReducedPrediction = 0;
     int reportDistortion = 1;
-
     int reportDistortionOnlyTarget = 0;
-    int reportToFile = 0;
+
+    int reportDistortionToFile = 1;
     int targetCTU = 135;
 
     ///////////////////////////////////////////////////////////////////////////////////////
@@ -618,6 +618,14 @@ int main(int argc, char *argv[])
             reportTargetDistortionValues_ALL(return_SAD, return_SATD, nCTUs, targetCTU);
         else
             reportAllDistortionValues_ALL(return_SAD, return_SATD, nCTUs);
+    }
+
+    // REPORT DISTORTION VALUES TO FILE
+    if(reportDistortionToFile){
+        if(reportDistortionOnlyTarget)
+            reportTargetDistortionValues_File(return_SAD, return_SATD, targetCTU, frameWidth, outputFilePreffix);
+        else
+            exportAllDistortionValues_File(return_SAD, return_SATD, nCTUs, frameWidth, outputFilePreffix);
     }
 
 

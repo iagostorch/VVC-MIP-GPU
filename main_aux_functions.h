@@ -462,6 +462,42 @@ void reportAllDistortionValues_ALL(long int *SAD, long int *SATD, int nCTUs){
     }
 }
 
+void exportAllDistortionValues_File(long int *SAD, long int *SATD, int nCTUs, int frameWidth, string outputFile){
+    int ctuCols = ceil(frameWidth/128.0);
+
+    FILE *distortionFile;
+    string outputFileName = outputFile + ".csv";
+    distortionFile = fopen(outputFileName.c_str(),"w");
+    fprintf(distortionFile,"CTU,cuSizeName,W,H,CU,X,Y,Mode,SAD,SATD\n");
+
+    // printf("-=-=-=-=-=-=-=-=- DISTORTION RESULTS FOR ALL CTUs -=-=-=-=-=-=-=-=-\n");
+    // printf("CTU,cuSizeName,W,H,CU,X,Y,Mode,SAD,SATD\n");
+    int ctuX, ctuY, cuX, cuY;
+    for(int ctu=0; ctu<nCTUs; ctu++){
+        ctuX = ctu%ctuCols;
+        ctuY = ctu/ctuCols;
+        
+        for(int cuSize=0; cuSize<ALL_NUM_CU_SIZES; cuSize++){
+            for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
+                cuX = ctuX + ALL_X_POS[cuSize][cu];
+                cuY = ctuY + ALL_Y_POS[cuSize][cu];
+
+                for(int mode=0; mode<PREDICTION_MODES_ID2*2; mode++){
+                    // printf("%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);  //  Report CU size/position info
+                    // printf("%ld,", SAD[ ctu*ALL_TOTAL_CUS_PER_CTU*12 + ALL_stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+                    // printf("%ld\n", SATD[ ctu*ALL_TOTAL_CUS_PER_CTU*12 + ALL_stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+
+                    fprintf(distortionFile, "%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
+                    fprintf(distortionFile, "%ld,", SAD[ ctu*ALL_TOTAL_CUS_PER_CTU*12 + ALL_stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+                    fprintf(distortionFile, "%ld\n", SATD[ ctu*ALL_TOTAL_CUS_PER_CTU*12 + ALL_stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+
+                }
+            }
+        }
+    }
+    fclose(distortionFile);
+}
+
 void reportTargetDistortionValues_ALL(long int *SAD, long int *SATD, int nCTUs, int targetCTU){
     printf("-=-=-=-=-=-=-=-=- DISTORTION RESULTS FOR CTU %d -=-=-=-=-=-=-=-=-\n", targetCTU);
     printf("CTU,cuSize,CU,Mode,SAD,SATD\n");
@@ -475,6 +511,39 @@ void reportTargetDistortionValues_ALL(long int *SAD, long int *SATD, int nCTUs, 
             }
         }
     }
+}
+
+void reportTargetDistortionValues_File(long int *SAD, long int *SATD, int targetCtu, int frameWidth, string outputFile){
+    int ctu = targetCtu;
+    int ctuCols = ceil(frameWidth/128.0);
+
+    FILE *distortionFile;
+    string outputFileName = outputFile + ".csv";
+    distortionFile = fopen(outputFileName.c_str(),"w");
+    fprintf(distortionFile,"CTU,cuSizeName,W,H,CU,X,Y,Mode,SAD,SATD\n");
+
+    int ctuX, ctuY, cuX, cuY;
+    ctuX = targetCtu%ctuCols;
+    ctuY = targetCtu/ctuCols;
+        
+    for(int cuSize=0; cuSize<ALL_NUM_CU_SIZES; cuSize++){
+        for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
+            cuX = ctuX + ALL_X_POS[cuSize][cu];
+            cuY = ctuY + ALL_Y_POS[cuSize][cu];
+
+            for(int mode=0; mode<PREDICTION_MODES_ID2*2; mode++){
+                // printf("%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);  //  Report CU size/position info
+                // printf("%ld,", SAD[ ctu*ALL_TOTAL_CUS_PER_CTU*12 + ALL_stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+                // printf("%ld\n", SATD[ ctu*ALL_TOTAL_CUS_PER_CTU*12 + ALL_stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+
+                fprintf(distortionFile, "%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
+                fprintf(distortionFile, "%ld,", SAD[ ctu*ALL_TOTAL_CUS_PER_CTU*12 + ALL_stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+                fprintf(distortionFile, "%ld\n", SATD[ ctu*ALL_TOTAL_CUS_PER_CTU*12 + ALL_stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+
+            }
+        }
+    }
+    fclose(distortionFile);
 }
 
 void reportTimingResults(){
