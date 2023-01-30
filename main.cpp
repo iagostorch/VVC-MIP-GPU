@@ -362,14 +362,14 @@ int main(int argc, char *argv[])
     string exportFileName;
 
     int enableTerminalReport = 1;
-    int reportReducedBoundaries = 0;
-    int reportCompleteBoundaries = 0;
+    int reportReducedBoundaries = 1;
+    int reportCompleteBoundaries = 1;
     int reportReducedPrediction = 0;
-    int reportDistortion = 1;
+    int reportDistortion = 0;
     int reportDistortionOnlyTarget = 0;
 
-    int reportDistortionToFile = 1;
-    int targetCTU = 135;
+    int reportDistortionToFile = 0;
+    int targetCTU = 16;
 
     ///////////////////////////////////////////////////////////////////////////////////////
     /////              THESE DYNAMIC ARRAYS  MUST BE FREED AFTER EXECUTION            /////
@@ -486,6 +486,8 @@ int main(int argc, char *argv[])
             reportCompleteBoundariesTargetCtu_ALL(return_unified_refT, return_unified_refL, targetCTU, frameWidth, frameHeight);
     }
     
+    return 1;
+
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //
     //          NOW WE OBTAIN THE REDUCED PREDICTION FOR ALL CU SIZES AND PREDICTION MODES

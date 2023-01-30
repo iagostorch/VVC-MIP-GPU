@@ -169,6 +169,40 @@ const char* translateCuSizeIdx_ALL(int cuSize){
     else if(cuSize==ALL_NA_8x16_G5)
         return "ALL_NA_8x16_G5";
 
+    // SizeId=1
+    else if(cuSize==ALL_AL_32x4)
+        return "ALL_AL_32x4";
+    else if(cuSize==ALL_AL_4x32)
+        return "ALL_AL_4x32";
+    else if(cuSize==ALL_AL_16x4)
+        return "ALL_AL_16x4";
+    else if(cuSize==ALL_AL_4x16)
+        return "ALL_AL_4x16";    
+    else if(cuSize==ALL_AL_8x8)
+        return "ALL_AL_8x8";
+    else if(cuSize==ALL_AL_8x4)
+        return "ALL_AL_8x4";
+    else if(cuSize==ALL_AL_4x8)
+        return "ALL_AL_4x8";
+    else if(cuSize==ALL_NA_16x4_G123)
+        return "ALL_NA_16x4_G123";
+    else if(cuSize==ALL_NA_4x16_G123)
+        return "ALL_NA_4x16_G123";
+    else if(cuSize==ALL_NA_8x8_G1)
+        return "ALL_NA_8x8_G1";
+    else if(cuSize==ALL_NA_8x8_G2)
+        return "ALL_NA_8x8_G2";
+    else if(cuSize==ALL_NA_8x8_G3)
+        return "ALL_NA_8x8_G3";
+    else if(cuSize==ALL_NA_8x8_G4)
+        return "ALL_NA_8x8_G4";
+    else if(cuSize==ALL_NA_8x8_G5)
+        return "ALL_NA_8x8_G5";
+    else if(cuSize==ALL_NA_8x4_G1)
+        return "ALL_NA_8x4_G1";
+    else if(cuSize==ALL_NA_4x8_G1)
+        return "ALL_NA_4x8_G1";
+
     else    
         return "ERROR";
 }
@@ -474,8 +508,8 @@ void exportAllDistortionValues_File(long int *SAD, long int *SATD, int nCTUs, in
     // printf("CTU,cuSizeName,W,H,CU,X,Y,Mode,SAD,SATD\n");
     int ctuX, ctuY, cuX, cuY;
     for(int ctu=0; ctu<nCTUs; ctu++){
-        ctuX = ctu%ctuCols;
-        ctuY = ctu/ctuCols;
+        ctuX = 128*(ctu%ctuCols);
+        ctuY = 128*(ctu/ctuCols);
         
         for(int cuSize=0; cuSize<ALL_NUM_CU_SIZES; cuSize++){
             for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
@@ -630,22 +664,37 @@ void reportReducedBoundariesTargetCtu_ALL(short *unified_redT, short *unified_re
     
     printf("=-=-=-=-=- REDUCED TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
     for(int cuSizeIdx=0; cuSizeIdx<ALL_NUM_CU_SIZES; cuSizeIdx++){
-        printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
-        for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
-            printf("CU %d\n", cu);
-            printf("%d,%d,%d,%d,\n", unified_redT[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], unified_redT[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], unified_redT[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], unified_redT[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        int boundarySize = ALL_reducedBoundarySizes[cuSizeIdx];
+        // TODO: For SizeId=0 the boundaries are small and we will need a different way to address this
+        if(boundarySize>2){
+            printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
+            for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
+                printf("CU %d\n", cu);
+                for(int b=0; b<boundarySize; b++){
+                    printf("%d,", unified_redT[targetCTU*ALL_TOTAL_CUS_PER_CTU*boundarySize + ALL_stridedCusPerCtu[cuSizeIdx]*boundarySize + cu*boundarySize + b]);
+                }
+                printf("\n");
+            }
+            printf("\n");
         }
-        printf("\n");
+
     }
 
     printf("=-=-=-=-=- REDUCED LEFT BOUNDARIES RESULTS -=-=-=-=-=\n");
     for(int cuSizeIdx=0; cuSizeIdx<ALL_NUM_CU_SIZES; cuSizeIdx++){
-        printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
-        for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
-            printf("CU %d\n", cu);
-            printf("%d,%d,%d,%d,\n", unified_redL[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 0], unified_redL[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 1], unified_redL[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 2], unified_redL[targetCTU*ALL_TOTAL_CUS_PER_CTU*4 + ALL_stridedCusPerCtu[cuSizeIdx]*4 + cu*4 + 3]);
+        int boundarySize = ALL_reducedBoundarySizes[cuSizeIdx];
+        // TODO: For SizeId=0 the boundaries are small and we will need a different way to address this
+        if(boundarySize>2){
+            printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
+            for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
+                printf("CU %d\n", cu);
+                for(int b=0; b<boundarySize; b++){
+                    printf("%d,", unified_redL[targetCTU*ALL_TOTAL_CUS_PER_CTU*boundarySize + ALL_stridedCusPerCtu[cuSizeIdx]*boundarySize + cu*boundarySize + b]);
+                }
+                printf("\n");
+            }
+            printf("\n");
         }
-        printf("\n");
     }
 }
 
@@ -659,6 +708,7 @@ void reportCompleteBoundariesTargetCtu_ALL(short *unified_refT, short *unified_r
             printf("CU %d\n", cu);
             for(int sample=0; sample<ALL_widths[cuSizeIdx]; sample++){
                 printf("%d,", unified_refT[targetCTU*ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES] + ALL_stridedCompleteTopBoundaries[cuSizeIdx] + cu*ALL_widths[cuSizeIdx] + sample]);
+                            //   unified_refT[ctuIdx*   ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES] + ALL_stridedCompleteTopBoundaries[cuSizeIdx] + (row*cuColumnsPerCtu+col)*cuWidth + w]);
             }
             printf("\n");
         }
