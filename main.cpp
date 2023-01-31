@@ -276,7 +276,7 @@ int main(int argc, char *argv[])
 
     // These memory objects hold the predicted signal and distortion after the kernel has finished
     cl_mem return_predictionSignal_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                                           nCTUs * ALL_TOTAL_CUS_PER_CTU * REDUCED_PRED_SIZE_Id2 * REDUCED_PRED_SIZE_Id2 * PREDICTION_MODES_ID2 * 2 * sizeof(short), NULL, &error_2); // Each CTU is composed of TOTAL_CUS_PER_CTU CUs, and each reduced CU is 8*8, and we have 12 prediction modes
+                                                           nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_2); // Each CTU is composed of TOTAL_CUS_PER_CTU CUs, and each reduced CU is 8*8, and we have 12 prediction modes
 
     cl_mem return_SATD_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                                nCTUs * ALL_TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2 * 2 * sizeof(long), NULL, &error_3);
@@ -363,8 +363,8 @@ int main(int argc, char *argv[])
 
     int enableTerminalReport = 1;
     int reportReducedBoundaries = 1;
-    int reportCompleteBoundaries = 1;
-    int reportReducedPrediction = 0;
+    int reportCompleteBoundaries = 0;
+    int reportReducedPrediction = 1;
     int reportDistortion = 0;
     int reportDistortionOnlyTarget = 0;
 
@@ -395,7 +395,7 @@ int main(int argc, char *argv[])
     // -----------------------------
     // Allocate some memory space
     // -----------------------------
-    return_reducedPredictionSignal = (short*)malloc(sizeof(short) * nCTUs * 8 * 8 * ALL_TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2*2); // Each predicted CU has 8x8 samples
+    return_reducedPredictionSignal = (short*)malloc(sizeof(short) * nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES]); // Each predicted CU has 8x8 samples
     return_SATD = (long*) malloc(sizeof(long) * nCTUs * ALL_TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2*2);
     return_SAD = (long*) malloc(sizeof(long) * nCTUs * ALL_TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2*2);
     // Unified boundaries
@@ -486,7 +486,6 @@ int main(int argc, char *argv[])
             reportCompleteBoundariesTargetCtu_ALL(return_unified_refT, return_unified_refL, targetCTU, frameWidth, frameHeight);
     }
     
-    return 1;
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //
@@ -551,6 +550,7 @@ int main(int argc, char *argv[])
             reportReducedPredictionTargetCtu_ALL(return_reducedPredictionSignal, targetCTU, frameWidth, frameHeight);
     }
     
+    return 1;
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //

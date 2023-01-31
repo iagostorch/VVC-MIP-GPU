@@ -180,10 +180,14 @@ const char* translateCuSizeIdx_ALL(int cuSize){
         return "ALL_AL_4x16";    
     else if(cuSize==ALL_AL_8x8)
         return "ALL_AL_8x8";
-    else if(cuSize==ALL_AL_8x4)
-        return "ALL_AL_8x4";
-    else if(cuSize==ALL_AL_4x8)
-        return "ALL_AL_4x8";
+    else if(cuSize==ALL_AL_8x4_1half)
+        return "ALL_AL_8x4_1half";
+    else if(cuSize==ALL_AL_8x4_2half)
+        return "ALL_AL_8x4_2half";
+    else if(cuSize==ALL_AL_4x8_1half)
+        return "ALL_AL_4x8_1half";
+    else if(cuSize==ALL_AL_4x8_2half)
+        return "ALL_AL_4x8_2half";
     else if(cuSize==ALL_NA_16x4_G123)
         return "ALL_NA_16x4_G123";
     else if(cuSize==ALL_NA_4x16_G123)
@@ -376,7 +380,7 @@ void readMemobjsIntoArray_reducedPrediction(cl_command_queue command_queue, int 
     cl_event read_event;
     
     error =  clEnqueueReadBuffer(command_queue, reducedPredictionSignal_memObj, CL_TRUE, 0, 
-            nCTUs * ALL_TOTAL_CUS_PER_CTU * 8 * 8 * 12 * sizeof(cl_short), return_reducedPredictionSignal, 0, NULL, &read_event);
+            nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_short), return_reducedPredictionSignal, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return prediction\n");
     error = clWaitForEvents(1, &read_event);
     probe_error(error, (char*)"Error waiting for read events\n");
@@ -732,21 +736,23 @@ void reportCompleteBoundariesTargetCtu_ALL(short *unified_refT, short *unified_r
 void reportReducedPredictionTargetCtu_ALL(short *reducedPrediction, int targetCTU, int frameWidth, int frameHeight){
     printf("TRACING REDUCED PREDICTION SIGNAL FOR CTU %d\n", targetCTU);
     for(int cuSizeIdx=0; cuSizeIdx<ALL_NUM_CU_SIZES; cuSizeIdx++){
+        int predSize = ALL_reducedPredSizes[cuSizeIdx];
+        int numModes = ALL_numPredModes[cuSizeIdx];
         printf("      RESULTS FOR CUs %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
         for(int cu=0; cu<ALL_cusPerCtu[cuSizeIdx]; cu++){
-            for(int m=0; m<PREDICTION_MODES_ID2*2; m++){
-                int ctuIdx = targetCTU*ALL_TOTAL_CUS_PER_CTU*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+            for(int m=0; m<numModes*2; m++){
+                int ctuIdx = targetCTU*ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES];
                 // Point to start of this CU size in global buffer
-                int currCuModeIdx = ctuIdx + ALL_stridedCusPerCtu[cuSizeIdx]*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                int currCuModeIdx = ctuIdx + ALL_stridedPredictionsPerCtu[cuSizeIdx];
                 // Point to start of this CU specifically in global buffer
-                currCuModeIdx += cu*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2*PREDICTION_MODES_ID2*2;
+                currCuModeIdx += cu*predSize*predSize*numModes*2;
                 // Point to start of the current mode in global buffer
-                currCuModeIdx += m*REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2;
+                currCuModeIdx += m*predSize*predSize;
 
                 printf("===>>> Size %s  ||  CU %d, MODE %d\n", translateCuSizeIdx_ALL(cuSizeIdx), cu, m);
-                for(int i=0; i<8; i++){
-                    for(int j=0; j<8; j++){
-                        printf("%d,", reducedPrediction[currCuModeIdx + i*8 + j]);
+                for(int i=0; i<predSize; i++){
+                    for(int j=0; j<predSize; j++){
+                        printf("%d,", reducedPrediction[currCuModeIdx + i*predSize + j]);
                     }
                     printf("\n");
                 }
