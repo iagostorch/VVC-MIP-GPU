@@ -400,7 +400,7 @@ void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, 
     cl_event read_event;
     
     error =  clEnqueueReadBuffer(command_queue, return_SAD_memObj, CL_TRUE, 0, 
-            nCTUs * ALL_TOTAL_CUS_PER_CTU * 12 * sizeof(cl_long), return_SAD, 0, NULL, &read_event);
+            nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_SAD, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return prediction\n");
     error = clWaitForEvents(1, &read_event);
     probe_error(error, (char*)"Error waiting for read events\n");
@@ -411,7 +411,7 @@ void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, 
     nanoSeconds += read_time_end-read_time_start;
 
     error =  clEnqueueReadBuffer(command_queue, return_SATD_memObj, CL_TRUE, 0, 
-            nCTUs * ALL_TOTAL_CUS_PER_CTU * 12 * sizeof(cl_long), return_SATD, 0, NULL, &read_event);
+            nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_SATD, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return prediction\n");
     error = clWaitForEvents(1, &read_event);
     probe_error(error, (char*)"Error waiting for read events\n");
@@ -539,13 +539,13 @@ void exportAllDistortionValues_File(long int *SAD, long int *SATD, int nCTUs, in
 void reportTargetDistortionValues_ALL(long int *SAD, long int *SATD, int nCTUs, int targetCTU){
     printf("-=-=-=-=-=-=-=-=- DISTORTION RESULTS FOR CTU %d -=-=-=-=-=-=-=-=-\n", targetCTU);
     printf("CTU,cuSize,CU,Mode,SAD,SATD\n");
-    for(int cuSize=0; cuSize<ALL_NUM_CU_SIZES; cuSize++){
+    for(int cuSize=0; cuSize<NUM_CU_SIZES_SizeId2; cuSize++){
         for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
             for(int mode=0; mode<PREDICTION_MODES_ID2*2; mode++){
                 // printf("%d,%d,%d,%d,", ctu, cuSize, cu, mode);  //  Report CU size/position info
                 printf("%d,%s,%d,%d,", targetCTU, translateCuSizeIdx_ALL(cuSize), cu, mode);  //  Report CU size/position info
-                printf("%ld,", SAD[ targetCTU*ALL_TOTAL_CUS_PER_CTU*12 + ALL_stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
-                printf("%ld\n", SATD[ targetCTU*ALL_TOTAL_CUS_PER_CTU*12 + ALL_stridedCusPerCtu[cuSize]*12 + cu*12 + mode ]);
+                printf("%ld,", SAD[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                printf("%ld\n", SATD[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
             }
         }
     }

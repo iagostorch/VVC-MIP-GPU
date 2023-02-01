@@ -279,9 +279,9 @@ int main(int argc, char *argv[])
                                                            nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_2); // Each CTU is composed of TOTAL_CUS_PER_CTU CUs, and each reduced CU is 8*8, and we have 12 prediction modes
 
     cl_mem return_SATD_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               nCTUs * ALL_TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2 * 2 * sizeof(long), NULL, &error_3);
+                                               nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_3);
     cl_mem return_SAD_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               nCTUs * ALL_TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2 * 2 * sizeof(long), NULL, &error_4);
+                                               nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_4);
 
     error = error || error_1 || error_2 || error_3 || error_4;
 
@@ -362,11 +362,11 @@ int main(int argc, char *argv[])
     string exportFileName;
 
     int enableTerminalReport = 1;
-    int reportReducedBoundaries = 1;
+    int reportReducedBoundaries = 0;
     int reportCompleteBoundaries = 0;
-    int reportReducedPrediction = 1;
-    int reportDistortion = 0;
-    int reportDistortionOnlyTarget = 0;
+    int reportReducedPrediction = 0;
+    int reportDistortion = 1;
+    int reportDistortionOnlyTarget = 1;
 
     int reportDistortionToFile = 0;
     int targetCTU = 16;
@@ -396,8 +396,8 @@ int main(int argc, char *argv[])
     // Allocate some memory space
     // -----------------------------
     return_reducedPredictionSignal = (short*)malloc(sizeof(short) * nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES]); // Each predicted CU has 8x8 samples
-    return_SATD = (long*) malloc(sizeof(long) * nCTUs * ALL_TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2*2);
-    return_SAD = (long*) malloc(sizeof(long) * nCTUs * ALL_TOTAL_CUS_PER_CTU * PREDICTION_MODES_ID2*2);
+    return_SATD = (long*) malloc(sizeof(long) * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);
+    return_SAD = (long*) malloc(sizeof(long) * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);
     // Unified boundaries
     return_unified_redT = (short*) malloc(sizeof(short) * nCTUs * ALL_TOTAL_CUS_PER_CTU * 4);
     return_unified_redL = (short*) malloc(sizeof(short) * nCTUs * ALL_TOTAL_CUS_PER_CTU * 4);
@@ -550,7 +550,6 @@ int main(int argc, char *argv[])
             reportReducedPredictionTargetCtu_ALL(return_reducedPredictionSignal, targetCTU, frameWidth, frameHeight);
     }
     
-    return 1;
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //
@@ -593,6 +592,7 @@ int main(int argc, char *argv[])
 
     // Execute the OpenCL kernel on the list
     // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
+    nWG = nCTUs*NUM_CU_SIZES_SizeId2;
     global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
     local_item_size = itemsPerWG;
 
@@ -611,7 +611,7 @@ int main(int argc, char *argv[])
     nanoSeconds = time_end - time_start;
 
     execTime_upsampleDistortion = nanoSeconds;
-
+    
     readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD);
 
     // REPORT DISTORTION VALUES TO TERMINAL
