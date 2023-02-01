@@ -14,8 +14,10 @@ enum CU_SIZE {
 #define TOTAL_CUS_PER_CTU 532
 
 #define PREDICTION_MODES_ID2 6
+#define PREDICTION_MODES_ID1 8
 
 #define REDUCED_PRED_SIZE_Id2 8
+#define REDUCED_PRED_SIZE_Id1 4
 
 const unsigned char widths[9] = {
                                         64,  // 64x64

@@ -13,6 +13,7 @@
 #define TOTAL_CUS_PER_CTU 532 // Sum of cusPerCtu for all supported CU sizes
 
 #define PREDICTION_MODES_ID2 6
+#define PREDICTION_MODES_ID1 8
 #define TEST_TRANSPOSED_MODES 1
 
 __constant unsigned char MIP_SHIFT_MATRIX = 6;
@@ -421,6 +422,7 @@ const unsigned short NA_stridedCusPerCtu[20] = {
 #define ALL_MAX_CUS_PER_CTU 256
 
 #define ALL_MAX_CUS_PER_CTU_SizeId2 128
+#define ALL_MAX_CUS_PER_CTU_SizeId1 256
 
 #define ALL_TOTAL_CUS_PER_CTU 4356 // Sum of cusPerCtu for all CUs with all alignments
 
