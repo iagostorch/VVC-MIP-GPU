@@ -12,7 +12,7 @@
 // This kernel is used to fetch the reduced boundaries for all the blocks
 // Each WG will process one CTU composed of a single CU size
 // It works for all blocks with SizeId=2 and all alignments
-__kernel void initBoundariesSquareSizeId2_ALL(__global short *referenceFrame, const int frameWidth, const int frameHeight, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
+__kernel void initBoundaries(__global short *referenceFrame, const int frameWidth, const int frameHeight, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
 
     int gid = get_global_id(0);
     int wg = get_group_id(0);
@@ -322,7 +322,7 @@ __kernel void initBoundariesSquareSizeId2_ALL(__global short *referenceFrame, co
 // This kernel is used to obtain the reduced prediction with all prediction modes
 // The prediction of all prediction modes is stored in global memory and returned to the host
 // Each WG will process one CTU composed of a single CU size
-__kernel void MIP_SizeId2_ALL(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL){
+__kernel void MIP_ReducedPred(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL){
     // Variables for indexing work items and work groups
     int gid = get_global_id(0);
     int wg = get_group_id(0);
@@ -384,7 +384,6 @@ __kernel void MIP_SizeId2_ALL(__global short *reducedPrediction, const int frame
 
     // TODO: Change this for loop to fetch the boundaries a single time for non-transposed and a single time for transposed
     // Use for(transp = [0,1]){ for(mode = [0,5])}
-    // TODO: These two for loops will have a different numbe of iterations depending if we are processing SizeId=2 or SizeId=1. This can lead the compiler to generate not optimized code. Consider using he same number of iterations for both SizeIds
     for(int m=0; m<totalPredictionModes; m++){
         
         short mode = m%(totalPredictionModes/2);
@@ -422,28 +421,6 @@ __kernel void MIP_SizeId2_ALL(__global short *reducedPrediction, const int frame
             int offset = select(offset_lo, offset_lo + offset_hi, reducedBoundarySize==4);            
             
             offset = (1 << (MIP_SHIFT_MATRIX - 1)) - MIP_OFFSET_MATRIX * offset;
-
-            // TODO: Compare performance of naive and dot-product prediction
-
-            // coefficients.s0 = 0;
-            // coefficients.s1 = mipMatrix16x16[mode][sampleInCu][0];
-            // coefficients.s2 = mipMatrix16x16[mode][sampleInCu][1];
-            // coefficients.s3 = mipMatrix16x16[mode][sampleInCu][2];
-            // coefficients.s4 = mipMatrix16x16[mode][sampleInCu][3];
-            // coefficients.s5 = mipMatrix16x16[mode][sampleInCu][4];
-            // coefficients.s6 = mipMatrix16x16[mode][sampleInCu][5];
-            // coefficients.s7 = mipMatrix16x16[mode][sampleInCu][6];
-
-            // predSample =  offset;
-            // predSample += coefficients.s1 * reducedBoundaries.s1;
-            // predSample += coefficients.s2 * reducedBoundaries.s2;
-            // predSample += coefficients.s3 * reducedBoundaries.s3;
-            // predSample += coefficients.s4 * reducedBoundaries.s4;
-            // predSample += coefficients.s5 * reducedBoundaries.s5;
-            // predSample += coefficients.s6 * reducedBoundaries.s6;
-            // predSample += coefficients.s7 * reducedBoundaries.s7;
-
-
 
             // Fetch the coefficients from global
             uchar8 vectorizedCoeffs;
@@ -531,304 +508,7 @@ __kernel void MIP_SizeId2_ALL(__global short *reducedPrediction, const int frame
     } // End of current mode
 }
 
-// This kernel is used to fetch the reduced boundaries for all the blocks
-// Each WG will process one CTU composed of a single CU size
-// It works for square blocks with SizeId=2 (64x64, 32x32, 16x16)
-__kernel void initBoundariesSquareSizeId2(__global short *referenceFrame, const int frameWidth, const int frameHeight, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
-
-    int gid = get_global_id(0);
-    int wg = get_group_id(0);
-    int lid = get_local_id(0);
-    int wgSize = get_local_size(0);
-
-    const short ctuColumnsPerFrame = (short) ceil((float)frameWidth/128);
-    const short ctuIdx = wg/NUM_CU_SIZES;
-    const short cuSizeIdx = wg%NUM_CU_SIZES;
-    const short cuWidth = widths[cuSizeIdx];
-    const short cuHeight = heights[cuSizeIdx];
-    const short nCusInCtu = cusPerCtu[cuSizeIdx];
-    const short itemsPerCu = wgSize/nCusInCtu;
-    const short cuColumnsPerCtu = 128/cuWidth;
-    const short cuRowsPerCtu = 128/cuHeight;
-
-    // CTU position inside the frame
-    const short ctuX = 128 * (ctuIdx%ctuColumnsPerFrame);  
-    const short ctuY = 128 * (ctuIdx/ctuColumnsPerFrame);
-
-    __constant short reducedBoundarySize = BOUNDARY_SIZE_Id2;
-    // Each of these hold one row/columns of samples for the entire CTU
-    __local short int refT[128], refL[128]; 
-    // These buffers are used as temporary storage between computing reduced boundaries and moving them into global memory
-    __local short int bufferGlobalRedT[MAX_CUS_PER_CTU*BOUNDARY_SIZE_Id2], bufferGlobalRedL[MAX_CUS_PER_CTU*BOUNDARY_SIZE_Id2];
-
-    __local short int bufferGlobalRefT[16][128], bufferGlobalRefL[16][128];
-
-    // These are used to compute the reduced boundaries
-    short downsamplingFactor;
-    short log2DownsamplingFactor;
-    short roundingOffset;
-
-    // Index for the first sample of the CTU inside the frame
-    const int idxForCtu = ctuY*frameWidth + ctuX; 
-
-    // For MIP, the references are either direcly above or direcly left (no above-right, below-left, or top-right).
-    // References are unavailable only ath the edges of the frame
-
-    const short valueDC = 1 << 9; // Used when there are no available references
-    short cuX, cuY;
-
-    // ----------------------------------------------------
-    //
-    //    START COMPUTING THE REDUCED TOP BOUNDARIES
-    //
-    // ----------------------------------------------------
-
-    downsamplingFactor = cuWidth/reducedBoundarySize;
-    log2DownsamplingFactor = (short) log2((float) downsamplingFactor);
-    roundingOffset = (1 << (log2DownsamplingFactor-1));
-
-    // Point to the row directly above the current CTU
-    int startCurrRow = idxForCtu  - frameWidth; 
-   
-    // Each iteration will create the redT boundary for one row of CUs inside the current CU
-    for(int row=0; row<cuRowsPerCtu; row++){ 
-        // Compute position of the CU this workitem is processing
-        cuY = row*cuHeight;
-        cuX = (lid/cuWidth)*cuWidth;
-        
-        // TODO: This only works if the number of workitems is equal to 128
-        // Depending if there are all, some or no references available, we fetch correct samples or pad them
-        if((ctuY+cuY)>0){ // Most general case, all references available
-            refT[lid] = referenceFrame[startCurrRow + lid]; // At this point, one row of samples is in the shared array. We must reduce it to obtain the redT for each CU
-        }
-        else if((ctuY+cuY)==0 && (ctuX+cuX)==0){ // CU is in the top-left corner of frame, no reference is available. Fill with predefined DC value
-            refT[lid] = valueDC;
-        }
-        else if((ctuY+cuY)==0 && (ctuX+cuX)>0){ // CU is in the top edge of the frame, we use the left samples to pad the top boundaries
-            refT[lid] = referenceFrame[ctuX+cuX-1]; // Sample directly left of the first sample inside the CU is padded to top boundary
-        }
-        bufferGlobalRefT[row][lid] = refT[lid];
-        // Wait until all workitems have fetched the complete boundary into shared array
-        barrier(CLK_LOCAL_MEM_FENCE);
-        
-        /*  TRACE THE COMPLETE TOP BOUNDARY FOR ONE ROW OF CUs
-        if(lid==0 && wg==targetWg){
-            printf("COMPLETE TOP BOUNDARY row %d\n", row);
-            for(int i=0; i<128; i++){
-                printf("%d,", refT[i]);
-            }
-            printf("\n");
-        }
-        //*/
-
-        // Each workitem will compute one sample of reducedBoundary for each CU
-        if(lid<(reducedBoundarySize*cuColumnsPerCtu)){ 
-            // Subsample top boundary
-            int temp = 0;
-            for(int t=0; t<downsamplingFactor; t++){
-                /*
-                if(wg==targetWg && lid==1 && row==0){
-                    printf("refSample,%d\n", refT[lid*downsamplingFactor + t]);
-                }
-                //*/
-                temp += refT[lid*downsamplingFactor + t];
-            }
-            // Save averaged samples into local buffer. The entire buffer is moved into global memory at once in the end of processing
-            bufferGlobalRedT[row*cuColumnsPerCtu*reducedBoundarySize + lid] = (temp + roundingOffset) >> log2DownsamplingFactor;
-            
-            /* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
-            if(wg==targetWg){
-                printf("Summed values top [%d] = %d\n", lid, temp);
-                printf("Processed values top [%d] = %d\n", lid, (temp + roundingOffset) >> log2DownsamplingFactor);
-            }
-            //*
-            
-            // Subsample left boundary
-            temp = 0;
-            for(int t=0; t<downsamplingFactor; t++)
-                temp += refL[lid*downsamplingFactor + t];
-
-            redL[lid] = (temp + roundingOffset) >> log2DownsamplingFactor;
-            
-            //* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
-            if(wg==targetWg){
-                printf("Summed values left [%d] = %d\n", lid, temp);
-                printf("Processed values left [%d] = %d\n", lid, (temp + roundingOffset) >> log2DownsamplingFactor);
-            }
-            //*/     
-        }
-        barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems computed the subsampled values
-        startCurrRow += frameWidth*cuHeight; // Update the beginning of the next row of samples (i.e., top of next row of CUs)
-    }
-
-    /* TRACE REDUCED TOP BOUNDARIES FOR THE ENTIRE CTU
-    if(wg==targetWg && lid==0){
-        printf("All reduced ref T\n");
-        for(int i=0; i<8*8*4; i++){
-            printf("%d,", bufferGlobalRedT[i]);
-        }
-        printf("\n\n");
-    }
-    //*/
-
-    // ---------   UNIFIED BUFFERS FOR TOP BOUNDARIES
-    //
-    // Move reduced boundary into unified global memory buffer
-    if(lid < 4*nCusInCtu){
-        int nPasses = max(1, (4*nCusInCtu)/wgSize); // 
-        for(int pass=0; pass<nPasses; pass++){
-            unified_redT[ctuIdx*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + pass*wgSize + lid] = bufferGlobalRedT[pass*wgSize + lid];
-        }
-    }
-
-    // Move complete boundary into global memory
-    if(lid < (cuRowsPerCtu*128)){
-        
-        int nRows = cuRowsPerCtu;
-        int rowsPerPass = wgSize/128;
-        int nPasses = max(1, (nRows*128) / wgSize);
-
-        for(int pass=0; pass<nPasses; pass++){
-            int currRow = pass*rowsPerPass + lid/128;
-            unified_refT[ctuIdx*stridedCompleteTopBoundaries[NUM_CU_SIZES] + stridedCompleteTopBoundaries[cuSizeIdx] + currRow*128 + lid%128] = bufferGlobalRefT[currRow][lid%128];
-        }            
-    }
-
-    // ----------------------------------------------------
-    //
-    //    NOW WE COMPUTE THE REDUCED LEFT BOUNDARIES
-    //
-    // ----------------------------------------------------
-
-    downsamplingFactor = cuHeight/reducedBoundarySize;
-    log2DownsamplingFactor = (short) log2((float) downsamplingFactor);
-    roundingOffset = (1 << (log2DownsamplingFactor-1));
-
-    // Point to the column directly left of the current CTU
-    int startCurrCol = idxForCtu  - 1; 
-    
-    // Each iteration will create the redL boundary for one column of CUs inside the current CU
-    // Since the CU data is stored in raster order and we are processing CUs in different lines (i.e., strided CUs), we must store
-    // The results in strided manner in local buffer
-    for(int col=0; col<cuColumnsPerCtu; col++){ 
-        cuY = (lid/cuHeight)*cuHeight;
-        cuX = col*cuWidth;
-        // TODO: This only works if the number of workitems is equal to 128
-        // TODO: This is VERY INEFFICIENT since the global memory accesses are completely strided
-        // TODO: If we store the referenceFrame in original and transposed manners (i.e., keep the same data in two different global memory objects, one transposed and other not)
-        //       It is possible to coalesce the memory accesses to refL as well. TOP boundaries accessed from ORIGINAL FRAME and LEFT boundaries accessed from TRANSPOSED FRAME
-        if((ctuX+cuX)>0){ // Most general case, all neighboring samples are available
-            refL[lid] = referenceFrame[startCurrCol + lid*frameWidth]; // At this point, one row of samples is in the shared array. We must reduce it to obtain the redL for each CU
-        }
-        else if((ctuY+cuY)==0 && (ctuX+cuX)==0){ // CU is in the top-left corner of frame, no reference is available. Fill with predefined DC value
-            refL[lid] = valueDC;
-        }
-        else if((ctuX+cuX)==0 && (ctuY+cuY)>0){ // CU is in the left edge of the frame, we use the top samples to pad the left boundaries
-            refL[lid] = referenceFrame[(ctuY+cuY-1)*frameWidth];  // Sample directly above of the first sample inside the CU is padded to left boundary
-        }
-        bufferGlobalRefL[col][lid] = refL[lid];
-
-        // Wait until all workitems have fetched the complete boundary into shared array
-        barrier(CLK_LOCAL_MEM_FENCE);
-        /*   TRACE THE COMPLETE LEFT BOUNDARY FOR ONE COLUMNS OF CUs
-        if(lid==0 && wg==targetWg){
-            printf("COMPLETE LEFT BOUNDARY col %d\n", col);
-            for(int i=0; i<128; i++){
-                printf("%d,", refL[i]);
-            }
-            printf("\n");
-        }
-        //*/
-
-        // Each workitem will compute one sample of reducedBoundary for each CU
-        if(lid<(reducedBoundarySize*cuRowsPerCtu)){ 
-            // Subsample top boundary
-            int temp = 0;
-            int currentRow = lid/reducedBoundarySize;
-            for(int t=0; t<downsamplingFactor; t++){
-                /* 
-                if(wg==targetWg && lid==0 && col==0){
-                    printf("refSample,%d\n", refL[lid*downsamplingFactor + t]);
-                }
-                //*/
-                temp += refL[lid*downsamplingFactor + t];
-            }
-
-            // Although we are computing the reduced boundaries of an entire column at once, the boundaries are stored in shared memory using a CU-raster order
-            // First the boundaries of the top-left CU are store in memory, then the boundaries of the CU to the right and so on. The accesses to shared memory are very strided
-            // The entire buffer is moved into global memory at once in the end of processing
-            bufferGlobalRedL[currentRow*cuColumnsPerCtu*reducedBoundarySize + col*reducedBoundarySize + lid%reducedBoundarySize] = (temp + roundingOffset) >> log2DownsamplingFactor;
-            
-            /* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
-            if(wg==targetWg){
-                printf("Summed values top [%d] = %d\n", lid, temp);
-                printf("Processed values top [%d] = %d\n", lid, (temp + roundingOffset) >> log2DownsamplingFactor);
-            }
-            //*
-            
-            // Subsample left boundary
-            temp = 0;
-            for(int t=0; t<downsamplingFactor; t++)
-                temp += refL[lid*downsamplingFactor + t];
-
-            redL[lid] = (temp + roundingOffset) >> log2DownsamplingFactor;
-            
-            //* TRACE BOUNDARIES DURING SUBSAMPLING PROCESS
-            if(wg==targetWg){
-                printf("Summed values left [%d] = %d\n", lid, temp);
-                printf("Processed values left [%d] = %d\n", lid, (temp + roundingOffset) >> log2DownsamplingFactor);
-            }
-            //*/     
-        }
-        barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems computed the subsampled values
-        startCurrCol += cuWidth; // Update the beginning of the next column  of samples (i.e., left of next column of samples)
-    }
-
-    /* TRACE REDUCED TOP BOUNDARIES FOR THE ENTIRE CTU
-    if(wg==targetWg && lid==0){
-        printf("All reduced ref L\n");
-        for(int i=0; i<4*cuRowsPerCtu*cuColumnsPerCtu; i++){
-            printf("%d,", bufferGlobalRedL[i]);
-        }
-        printf("\n\n");
-    }
-    //*/
-
-    // ---------   UNIFIED BUFFERS FOR LEFT BOUNDARIES
-    //
-    // Move reduced boundary into unified global memory buffer -- ok
-    if(lid < 4*nCusInCtu){
-        int nPasses = max(1, (4*nCusInCtu)/wgSize); // 
-        for(int pass=0; pass<nPasses; pass++){
-            unified_redL[ctuIdx*TOTAL_CUS_PER_CTU*4 + stridedCusPerCtu[cuSizeIdx]*4 + pass*wgSize + lid] = bufferGlobalRedL[pass*wgSize + lid];
-        }
-    }
-
-   // Move complete boundary into global memory
-    if(lid < (cuColumnsPerCtu*128)){
-        
-        int nColumns= cuColumnsPerCtu;
-        int nRows = cuRowsPerCtu;
-
-        int columnsPerPass = wgSize/cuHeight;
-        int samplesPerRow = cuHeight*cuColumnsPerCtu; // Sum all left boundaries of CUs in the same CU row
-
-        int nPasses = max(1, (nColumns*128) / wgSize);
-
-        int currCuCol, currCuRow, currSample;
-
-        for(int pass=0; pass<nPasses; pass++){
-                int stride = pass*wgSize + lid;
-                currCuRow = stride / samplesPerRow;
-                currCuCol = (stride/cuHeight) % cuColumnsPerCtu;
-                currSample = stride % cuHeight;
-                // Left boundaries are stored in global memory in CU-raster order. First the boundaries of CU_0, then CU_1, then CU_2, ... Since CUs are upsampled in raster order, this order improves the memory accesses
-                unified_refL[ctuIdx*stridedCompleteLeftBoundaries[NUM_CU_SIZES] + stridedCompleteLeftBoundaries[cuSizeIdx] + currCuRow*cuColumnsPerCtu*cuHeight + currCuCol*cuHeight + currSample] = bufferGlobalRefL[currCuCol][currCuRow*cuHeight + currSample];
-        }
-    }
-}
-
-__kernel void upsampleDistortionSizeId2_ALL(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL, __global long *minSadHad){
+__kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
     int gid = get_global_id(0);
     int wg = get_group_id(0);
     int lid = get_local_id(0);
@@ -865,10 +545,6 @@ __kernel void upsampleDistortionSizeId2_ALL(__global short *reducedPrediction, c
     const int log2UpsamplingVertical = (int) log2((float) upsamplingVertical);
     const int roundingOffsetVertical = 1 << (log2UpsamplingVertical - 1);
     
-    // TODO: Correct this when supporting more block sizes.
-    // Correct value is upsamplingHorizontal>1 || upsamplingVertical>1;
-    int needUpsampling = 1; 
-
     // ######################################################################
     //      Variables shared for horizontal and vertical interpolation
     int xPosInCu, yPosInCu, xPosInCtu, yPosInCtu, xPosInFrame, yPosInFrame, idx;
@@ -1007,7 +683,6 @@ __kernel void upsampleDistortionSizeId2_ALL(__global short *reducedPrediction, c
             //
             //      START WITH HORIZONTAL UPSAMPLING...
 
-            // TODO: This should be corrected when we process CUs with less samples than 16x16 (i.e., 16x8 and 8x16)
             int nPassesHorizontalUpsampling = max(1, (cuWidth*reducedPredSize)/itemsPerCuInUpsampling);
 
             for(int pass=0; pass<nPassesHorizontalUpsampling; pass++){
@@ -1164,290 +839,74 @@ __kernel void upsampleDistortionSizeId2_ALL(__global short *reducedPrediction, c
             
             localSATD[lid] = 0;
 
-            // ALLOW SKIPPING SATD TO MEASURE PROCESSING TIME
-            if(CONDUCT_SATD){
-                // TODO: This NEW_SATD method WAS NOT improved to support the remaining block sizes and alignments
-                if(NEW_SATD){
-                    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                    //
-                    //      ALTERNATIVE SATD COMPUTATION
-                    int subblocksPerCu = (cuWidth*cuHeight)/16;
-                    int subblocksColumnsPerCu = cuWidth/4;
-                    int nPasses = (cuWidth*cuHeight)/128;
+            // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+            //
+            //      COMPUTE SATD FOR THE CURRENT CU
+            int idxSubblock;
+            int nPassesForSatd = max(1,nPassesOriginalFetch/16);
+            itemsPerCuInSatd = min(128, (cuWidth*cuHeight)/16);
+            int subblockX, subblockY;
+            short16 origSubblock, predSubblock;
+
+            // Here, each workitem will compute the SATD for one or more subblocks 4x4, and accumulate the results in __local localSATD
+            if((lid%128) < itemsPerCuInSatd){
+                for(int pass=0; pass<nPassesForSatd; pass++){
+                    idxSubblock = pass*itemsPerCuInSatd + lid%128;
+                    subblockX = (idxSubblock%(cuWidth/4))<<2;
+                    subblockY = (idxSubblock/(cuWidth/4))<<2;
+                    idx = subblockY*(cuWidth/4) + subblockX/4;
+
+
+                    // 1st row                    
+                    origSubblock.lo.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.lo.lo = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
+                    // 2nd row
+                    idx += cuWidth/4;
+                    origSubblock.lo.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.lo.hi = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
+                    // 3rd row
+                    idx += cuWidth/4;
+                    origSubblock.hi.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.hi.lo = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
+                    // 4th row
+                    idx += cuWidth/4;
+                    origSubblock.hi.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.hi.hi = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
+
+                    localSATD[lid] += satd_4x4(origSubblock, predSubblock);
                     
-                    // TODO: Transform this section into a function
-                    // Compute transformed differences at the 4x4-level
-                    for(int pass=0; pass<nPasses; pass++){
-                        int idx = pass*128 + lid%128;
-                        int currSubblock = idx/16;
-                        int subblockX = (currSubblock%subblocksColumnsPerCu)*4;
-                        int subblockY = (currSubblock/subblocksColumnsPerCu)*4;
-                        // Position of the sample that will be computed
-                        int i = idx%16;
-                        int i_xInCu = subblockX + i%4;
-                        int i_yInCu = subblockY + i/4;
-                        int i_idxInCu = i_yInCu*cuWidth + i_xInCu;
-                        // Used to index the arguments of the SATD for one position, and store the temporary value before updating the array
-                        int j, j_xInCu, j_yInCu, k, k_xInCu, k_yInCu, f_i;
-                        int j_idxInCu, k_idxInCu;
-                        int tempValue;
-
-                        // Now the hadamard transform is applied to the 4x4 blocks. We derive the index of operands and operation (+/-) based on the index of current coefficient
-                        // m[i] = diff[j] +/-(f_i) diff[k]
-                        // The values of j, f_i and k are computed based on i
-
-                        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                        // 
-                        // 1st
-                        j = i - 4*(i>=8) - 8*(i>=12);
-                        k = 12 + i - 8*(i>=4) - 4*(i>=8);
-                        f_i = i<8 ? 1 : -1;
-                        
-                        j_xInCu = subblockX + j%4;
-                        j_yInCu = subblockY + j/4;
-                        j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                        k_xInCu = subblockX + k%4;
-                        k_yInCu = subblockY + k/4;
-                        k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                        // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                        tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                        // barrier(CLK_LOCAL_MEM_FENCE);
-
-                        // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                        localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                        // barrier(CLK_LOCAL_MEM_FENCE);
-
-                        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                        // 
-                        // 2nd
-                        j = i + 4*(i>=4) - 12*(i>=8) + 8*(i>=12);
-                        k = 4 + i + 4*(i>=4) - 12*(i>=8);
-                        f_i = i<8 ? 1 : -1;
-                        
-                        j_xInCu = subblockX + j%4;
-                        j_yInCu = subblockY + j/4;
-                        j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                        k_xInCu = subblockX + k%4;
-                        k_yInCu = subblockY + k/4;
-                        k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                        // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                        tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                        // barrier(CLK_LOCAL_MEM_FENCE);
-
-                        // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                        localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                        // barrier(CLK_LOCAL_MEM_FENCE);                
-
-
-                        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                        // 
-                        // 3rd
-                        j = 4*(i/4) + 1*(i%4==1) + 1*(i%4==2);
-                        k = 3 + 4*(i/4) - 1*(i%4==1) - 1*(i%4==2);
-                        f_i = i%4<2 ? 1 : -1;
-                        
-                        j_xInCu = subblockX + j%4;
-                        j_yInCu = subblockY + j/4;
-                        j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                        k_xInCu = subblockX + k%4;
-                        k_yInCu = subblockY + k/4;
-                        k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                        // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                        tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                        // barrier(CLK_LOCAL_MEM_FENCE);
-
-                        // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                        localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                        // barrier(CLK_LOCAL_MEM_FENCE);  
-
-                        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                        // 
-                        // 4th
-                        j = 4*(i/4) + 2*(i%4==2) + 3*(i%4==3);
-                        k = 1 + 4*(i/4) + 2*(i%4==2) + 1*(i%4==3);
-                        f_i = i%2==0 ? 1 : -1;
-                        
-                        j_xInCu = subblockX + j%4;
-                        j_yInCu = subblockY + j/4;
-                        j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                        k_xInCu = subblockX + k%4;
-                        k_yInCu = subblockY + k/4;
-                        k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                        // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                        tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                        // barrier(CLK_LOCAL_MEM_FENCE);
-
-                        // TODO: MAYBE it is not necessary to synch the workitems here because the next iteration will work over a different set of values. Only synch outside the for loop
-                        // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                        localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                        barrier(CLK_LOCAL_MEM_FENCE);  
-                    }
-
-
-                    //* 
-                    // REDUCE TOTAL SATD IN PARALLEL
-                    // At this point we have the transformed differences for all subblocks 4x4.
-                    // Now each workitem will sum the absolute coefficients and save in its position in localSATD[lid]
-                    // Then, these values are reduced
-                    itemsPerCuInSatd = min(128, (cuWidth*cuHeight)/16);
-                    int nPassesSumCoefficients = max(1, subblocksPerCu/itemsPerCuInSatd);
-                    if(lid%128<itemsPerCuInSatd){
-                        int sb, subblockX, subblockY, startRow, currSATD;
-                        for(int pass=0; pass<nPassesSumCoefficients; pass++){
-                            sb = pass*itemsPerCuInSatd + lid%128; // Subblock this workitem will process
-                            currSATD = 0;
-                            subblockX = (sb%subblocksColumnsPerCu)*4;
-                            subblockY = (sb/subblocksColumnsPerCu)*4;
-                            startRow = subblockY*cuWidth + subblockX;
-                            for(int row=0; row<4; row++){
-                                for(int col=0; col<4; col++){
-                                    currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow + row*cuWidth + col]);
-                                }
-                            }
-                            currSATD -= abs(localUpsampledPrediction[cuIdxInIteration][startRow]);
-                            currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow]) >> 2;
-                            currSATD = ((currSATD+1)>>1);
-                            
-                            // if(1 && ctuIdx==0 && cuSizeIdx==_64x64 && currCu==0 && mode==0){// } && lid%128==0){
-                            //     printf("CTU=%d,cuSize=%d,cuIdx=%d,sb=%d,SATD=%d\n", ctuIdx, cuSizeIdx, currCu, sb, currSATD);
-                            // }
-
-
-                            localSATD[lid] += currSATD;
-                            currSATD = 0;
-                        }
-                    }
-                    barrier(CLK_LOCAL_MEM_FENCE);  // Wait until all partial SATDs are computed
-                    //*/
-
-                    //*
-                    // PARALLEL REDUCTION
-                    nPassesParallelSum = (int) log2( (float) min(128, cuWidth*cuHeight/16) ); // log2()
-                    stride = itemsPerCuInSatd/2;
-                    baseIdx = (lid/128)*128 + lid%128;
-                    for(int pass=0; pass<nPassesParallelSum; pass++){
-                        if(lid%128 < stride){
-                            localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
-                            stride = stride/2;
-                        }    
-                        barrier(CLK_LOCAL_MEM_FENCE);  
+                    /* TRACE INTERMEDIARY SATD 4X4
+                    if(1 && ctuIdx==0 && cuSizeIdx==_64x64 && mode==0 && currCu==0){//} && lid==0){
+                        printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %ld\n", lid, idx, subblockX, subblockY, satd_4x4(origSubblock, predSubblock));
+                        // printf("Orig subblock\n");
+                        // printf("%d,%d,%d,%d\n", origSubblock.s0, origSubblock.s1, origSubblock.s2, origSubblock.s3);
+                        // printf("%d,%d,%d,%d\n", origSubblock.s4, origSubblock.s5, origSubblock.s6, origSubblock.s7);
+                        // printf("%d,%d,%d,%d\n", origSubblock.s8, origSubblock.s9, origSubblock.sa, origSubblock.sb);
+                        // printf("%d,%d,%d,%d\n", origSubblock.sc, origSubblock.sd, origSubblock.se, origSubblock.sf);
+                    
+                        // printf("Pred subblock\n");
+                        // printf("%d,%d,%d,%d\n", predSubblock.s0, predSubblock.s1, predSubblock.s2, predSubblock.s3);
+                        // printf("%d,%d,%d,%d\n", predSubblock.s4, predSubblock.s5, predSubblock.s6, predSubblock.s7);
+                        // printf("%d,%d,%d,%d\n", predSubblock.s8, predSubblock.s9, predSubblock.sa, predSubblock.sb);
+                        // printf("%d,%d,%d,%d\n\n\n", predSubblock.sc, predSubblock.sd, predSubblock.se, predSubblock.sf);                    
                     }
                     //*/
-                    
-                    
-                    /*
-                    // Sum individual values and reduce SATD in sequential fashion
-                    if(lid%128 == 0){
-                        int currSATD = 0, totalSATD = 0;
-                        for(int sb=1; sb<subblocksPerCu; sb++){
-                            localSATD[lid] += localSATD[lid+sb];
-                            // int subblockX = (sb%subblocksColumnsPerCu)*4;
-                            // int subblockY = (sb/subblocksColumnsPerCu)*4;
-                            // int startRow = subblockY*cuWidth + subblockX;
-                            // for(int row=0; row<4; row++){
-                            //     for(int col=0; col<4; col++)
-                            //         currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow + row*cuWidth + col]);
-                            // }
-                            // currSATD -= abs(localUpsampledPrediction[cuIdxInIteration][startRow]);
-                            // currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow]) >> 2;
-                            // currSATD = (currSATD+1)>>1;
-                            
-                            // totalSATD += currSATD;
-
-                            // // if(1 && ctuIdx==16 && cuSizeIdx==_64x64 && mode==11 && currCu==2 && lid%128==0){
-                            // //     // printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %ld, Total SATD %ld\n", lid, idx, subblockX, subblockY, currSATD, totalSATD);
-                            // //     printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %d, Total SATD %d\n", lid, idx, subblockX, subblockY, currSATD, totalSATD);
-                            // // }
-                            // currSATD = 0;
-                        }
-                        // localSATD[lid] = totalSATD;
-                    }
-                    //*/
-                    barrier(CLK_LOCAL_MEM_FENCE);
-                }
-                
-                
-                if(!NEW_SATD){
-                    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                    //
-                    //      COMPUTE SATD FOR THE CURRENT CU
-                    //*
-                    int idxSubblock;
-                    int nPassesForSatd = max(1,nPassesOriginalFetch/16);
-                    itemsPerCuInSatd = min(128, (cuWidth*cuHeight)/16);
-                    int subblockX, subblockY;
-                    short16 origSubblock, predSubblock;
-
-                    // Here, each workitem will compute the SATD for one or more subblocks 4x4, and accumulate the results in __local localSATD
-                    if((lid%128) < itemsPerCuInSatd){
-                        for(int pass=0; pass<nPassesForSatd; pass++){
-                            idxSubblock = pass*itemsPerCuInSatd + lid%128;
-                            subblockX = (idxSubblock%(cuWidth/4))<<2;
-                            subblockY = (idxSubblock/(cuWidth/4))<<2;
-                            idx = subblockY*(cuWidth/4) + subblockX/4;
-
-
-                            // 1st row                    
-                            origSubblock.lo.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.lo.lo = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
-                            // 2nd row
-                            idx += cuWidth/4;
-                            origSubblock.lo.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.lo.hi = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
-                            // 3rd row
-                            idx += cuWidth/4;
-                            origSubblock.hi.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.hi.lo = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
-                            // 4th row
-                            idx += cuWidth/4;
-                            origSubblock.hi.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.hi.hi = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
-
-                            localSATD[lid] += satd_4x4(origSubblock, predSubblock);
-                            
-                            /* TRACE INTERMEDIARY SATD 4X4
-                            if(1 && ctuIdx==0 && cuSizeIdx==_64x64 && mode==0 && currCu==0){//} && lid==0){
-                                printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %ld\n", lid, idx, subblockX, subblockY, satd_4x4(origSubblock, predSubblock));
-                                // printf("Orig subblock\n");
-                                // printf("%d,%d,%d,%d\n", origSubblock.s0, origSubblock.s1, origSubblock.s2, origSubblock.s3);
-                                // printf("%d,%d,%d,%d\n", origSubblock.s4, origSubblock.s5, origSubblock.s6, origSubblock.s7);
-                                // printf("%d,%d,%d,%d\n", origSubblock.s8, origSubblock.s9, origSubblock.sa, origSubblock.sb);
-                                // printf("%d,%d,%d,%d\n", origSubblock.sc, origSubblock.sd, origSubblock.se, origSubblock.sf);
-                            
-                                // printf("Pred subblock\n");
-                                // printf("%d,%d,%d,%d\n", predSubblock.s0, predSubblock.s1, predSubblock.s2, predSubblock.s3);
-                                // printf("%d,%d,%d,%d\n", predSubblock.s4, predSubblock.s5, predSubblock.s6, predSubblock.s7);
-                                // printf("%d,%d,%d,%d\n", predSubblock.s8, predSubblock.s9, predSubblock.sa, predSubblock.sb);
-                                // printf("%d,%d,%d,%d\n\n\n", predSubblock.sc, predSubblock.sd, predSubblock.se, predSubblock.sf);                    
-                            }
-                            //*/
-                            
-                            //*
-                        }
-                    }
-
-                    barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SATD computation
-
-                    // PARALLEL REDUCTION
-                    nPassesParallelSum = (int) log2( (float) min(128, cuWidth*cuHeight/16) ); // log2()
-                    stride = itemsPerCuInSatd/2;
-                    baseIdx = (lid/128)*128 + lid%128;
-                    for(int pass=0; pass<nPassesParallelSum; pass++){
-                        if(lid%128 < stride){
-                            localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
-                            stride = stride/2;
-                        }    
-                        barrier(CLK_LOCAL_MEM_FENCE);  
-                    }
                 }
             }
 
+            barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SATD computation
 
-            //*/
+            // PARALLEL REDUCTION
+            nPassesParallelSum = (int) log2( (float) min(128, cuWidth*cuHeight/16) ); // log2()
+            stride = itemsPerCuInSatd/2;
+            baseIdx = (lid/128)*128 + lid%128;
+            for(int pass=0; pass<nPassesParallelSum; pass++){
+                if(lid%128 < stride){
+                    localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
+                    stride = stride/2;
+                }    
+                barrier(CLK_LOCAL_MEM_FENCE);  
+            }
 
             // Save SAD and SATD of current CU/mode in a __local buffer. We only access global memory when all SAD values are computed or all CUs
             if(lid==0){
@@ -1487,7 +946,7 @@ __kernel void upsampleDistortionSizeId2_ALL(__global short *reducedPrediction, c
     }
 }
 
-__kernel void upsampleDistortionSizeId1_ALL(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL, __global long *minSadHad){
+__kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
     int gid = get_global_id(0);
     int wg = get_group_id(0);
     int lid = get_local_id(0);
@@ -1523,10 +982,6 @@ __kernel void upsampleDistortionSizeId1_ALL(__global short *reducedPrediction, c
 
     const int log2UpsamplingVertical = (int) log2((float) upsamplingVertical);
     const int roundingOffsetVertical = 1 << (log2UpsamplingVertical - 1);
-    
-    // TODO: Correct this when supporting more block sizes.
-    // Correct value is upsamplingHorizontal>1 || upsamplingVertical>1;
-    int needUpsampling = 1; 
 
     // ######################################################################
     //      Variables shared for horizontal and vertical interpolation
@@ -1666,7 +1121,6 @@ __kernel void upsampleDistortionSizeId1_ALL(__global short *reducedPrediction, c
             //
             //      START WITH HORIZONTAL UPSAMPLING...
 
-            // TODO: This should be corrected when we process CUs with less samples than 16x16 (i.e., 16x8 and 8x16)
             int nPassesHorizontalUpsampling = max(1, (cuWidth*reducedPredSize)/itemsPerCuInUpsampling);
 
             for(int pass=0; pass<nPassesHorizontalUpsampling; pass++){
@@ -1786,9 +1240,6 @@ __kernel void upsampleDistortionSizeId1_ALL(__global short *reducedPrediction, c
                 yPosInCu = idx/cuWidth;
                 
                 localSAD[lid] += (int) abs(localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] - localUpsampledPrediction[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu]);
-                // Substitute predicted samples by prediction error
-                if(NEW_SATD)
-                    localUpsampledPrediction[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] = localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] - localUpsampledPrediction[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu];
             }
             barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SAD computation
             
@@ -1823,288 +1274,74 @@ __kernel void upsampleDistortionSizeId1_ALL(__global short *reducedPrediction, c
             
             localSATD[lid] = 0;
 
-            // ALLOW SKIPPING SATD TO MEASURE PROCESSING TIME
-            if(CONDUCT_SATD){
-                // TODO: This NEW_SATD method WAS NOT improved to support the remaining block sizes and alignments
-                if(NEW_SATD){
-                    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                    //
-                    //      ALTERNATIVE SATD COMPUTATION
-                    int subblocksPerCu = (cuWidth*cuHeight)/16;
-                    int subblocksColumnsPerCu = cuWidth/4;
-                    int nPasses = (cuWidth*cuHeight)/32;
+            // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+            //
+            //      COMPUTE SATD FOR THE CURRENT CU
+            int idxSubblock;
+            int nPassesForSatd = max(1,nPassesOriginalFetch/16);
+            itemsPerCuInSatd = min(32, (cuWidth*cuHeight)/16);
+            int subblockX, subblockY;
+            short16 origSubblock, predSubblock;
+
+            // Here, each workitem will compute the SATD for one or more subblocks 4x4, and accumulate the results in __local localSATD
+            if((lid%32) < itemsPerCuInSatd){
+                for(int pass=0; pass<nPassesForSatd; pass++){
+                    idxSubblock = pass*itemsPerCuInSatd + lid%32;
+                    subblockX = (idxSubblock%(cuWidth/4))<<2;
+                    subblockY = (idxSubblock/(cuWidth/4))<<2;
+                    idx = subblockY*(cuWidth/4) + subblockX/4;
+
+
+                    // 1st row                    
+                    origSubblock.lo.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.lo.lo = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
+                    // 2nd row
+                    idx += cuWidth/4;
+                    origSubblock.lo.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.lo.hi = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
+                    // 3rd row
+                    idx += cuWidth/4;
+                    origSubblock.hi.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.hi.lo = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
+                    // 4th row
+                    idx += cuWidth/4;
+                    origSubblock.hi.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.hi.hi = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
+
+                    localSATD[lid] += satd_4x4(origSubblock, predSubblock);
                     
-                    // TODO: Transform this section into a function
-                    // Compute transformed differences at the 4x4-level
-                    for(int pass=0; pass<nPasses; pass++){
-                        int idx = pass*32 + lid%32;
-                        int currSubblock = idx/16;
-                        int subblockX = (currSubblock%subblocksColumnsPerCu)*4;
-                        int subblockY = (currSubblock/subblocksColumnsPerCu)*4;
-                        // Position of the sample that will be computed
-                        int i = idx%16;
-                        int i_xInCu = subblockX + i%4;
-                        int i_yInCu = subblockY + i/4;
-                        int i_idxInCu = i_yInCu*cuWidth + i_xInCu;
-                        // Used to index the arguments of the SATD for one position, and store the temporary value before updating the array
-                        int j, j_xInCu, j_yInCu, k, k_xInCu, k_yInCu, f_i;
-                        int j_idxInCu, k_idxInCu;
-                        int tempValue;
-
-                        // Now the hadamard transform is applied to the 4x4 blocks. We derive the index of operands and operation (+/-) based on the index of current coefficient
-                        // m[i] = diff[j] +/-(f_i) diff[k]
-                        // The values of j, f_i and k are computed based on i
-
-                        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                        // 
-                        // 1st
-                        j = i - 4*(i>=8) - 8*(i>=12);
-                        k = 12 + i - 8*(i>=4) - 4*(i>=8);
-                        f_i = i<8 ? 1 : -1;
-                        
-                        j_xInCu = subblockX + j%4;
-                        j_yInCu = subblockY + j/4;
-                        j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                        k_xInCu = subblockX + k%4;
-                        k_yInCu = subblockY + k/4;
-                        k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                        // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                        tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                        // barrier(CLK_LOCAL_MEM_FENCE);
-
-                        // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                        localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                        // barrier(CLK_LOCAL_MEM_FENCE);
-
-                        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                        // 
-                        // 2nd
-                        j = i + 4*(i>=4) - 12*(i>=8) + 8*(i>=12);
-                        k = 4 + i + 4*(i>=4) - 12*(i>=8);
-                        f_i = i<8 ? 1 : -1;
-                        
-                        j_xInCu = subblockX + j%4;
-                        j_yInCu = subblockY + j/4;
-                        j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                        k_xInCu = subblockX + k%4;
-                        k_yInCu = subblockY + k/4;
-                        k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                        // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                        tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                        // barrier(CLK_LOCAL_MEM_FENCE);
-
-                        // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                        localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                        // barrier(CLK_LOCAL_MEM_FENCE);                
-
-
-                        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                        // 
-                        // 3rd
-                        j = 4*(i/4) + 1*(i%4==1) + 1*(i%4==2);
-                        k = 3 + 4*(i/4) - 1*(i%4==1) - 1*(i%4==2);
-                        f_i = i%4<2 ? 1 : -1;
-                        
-                        j_xInCu = subblockX + j%4;
-                        j_yInCu = subblockY + j/4;
-                        j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                        k_xInCu = subblockX + k%4;
-                        k_yInCu = subblockY + k/4;
-                        k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                        // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                        tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                        // barrier(CLK_LOCAL_MEM_FENCE);
-
-                        // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                        localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                        // barrier(CLK_LOCAL_MEM_FENCE);  
-
-                        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                        // 
-                        // 4th
-                        j = 4*(i/4) + 2*(i%4==2) + 3*(i%4==3);
-                        k = 1 + 4*(i/4) + 2*(i%4==2) + 1*(i%4==3);
-                        f_i = i%2==0 ? 1 : -1;
-                        
-                        j_xInCu = subblockX + j%4;
-                        j_yInCu = subblockY + j/4;
-                        j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                        k_xInCu = subblockX + k%4;
-                        k_yInCu = subblockY + k/4;
-                        k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                        // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                        tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                        // barrier(CLK_LOCAL_MEM_FENCE);
-
-                        // TODO: MAYBE it is not necessary to synch the workitems here because the next iteration will work over a different set of values. Only synch outside the for loop
-                        // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                        localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                        barrier(CLK_LOCAL_MEM_FENCE);  
-                    }
-
-
-                    //* 
-                    // REDUCE TOTAL SATD IN PARALLEL
-                    // At this point we have the transformed differences for all subblocks 4x4.
-                    // Now each workitem will sum the absolute coefficients and save in its position in localSATD[lid]
-                    // Then, these values are reduced
-                    itemsPerCuInSatd = min(128, (cuWidth*cuHeight)/16);
-                    int nPassesSumCoefficients = max(1, subblocksPerCu/itemsPerCuInSatd);
-                    if(lid%128<itemsPerCuInSatd){
-                        int sb, subblockX, subblockY, startRow, currSATD;
-                        for(int pass=0; pass<nPassesSumCoefficients; pass++){
-                            sb = pass*itemsPerCuInSatd + lid%128; // Subblock this workitem will process
-                            currSATD = 0;
-                            subblockX = (sb%subblocksColumnsPerCu)*4;
-                            subblockY = (sb/subblocksColumnsPerCu)*4;
-                            startRow = subblockY*cuWidth + subblockX;
-                            for(int row=0; row<4; row++){
-                                for(int col=0; col<4; col++){
-                                    currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow + row*cuWidth + col]);
-                                }
-                            }
-                            currSATD -= abs(localUpsampledPrediction[cuIdxInIteration][startRow]);
-                            currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow]) >> 2;
-                            currSATD = ((currSATD+1)>>1);
-                            
-                            // if(1 && ctuIdx==0 && cuSizeIdx==_64x64 && currCu==0 && mode==0){// } && lid%128==0){
-                            //     printf("CTU=%d,cuSize=%d,cuIdx=%d,sb=%d,SATD=%d\n", ctuIdx, cuSizeIdx, currCu, sb, currSATD);
-                            // }
-
-
-                            localSATD[lid] += currSATD;
-                            currSATD = 0;
-                        }
-                    }
-                    barrier(CLK_LOCAL_MEM_FENCE);  // Wait until all partial SATDs are computed
-                    //*/
-
-                    //*
-                    // PARALLEL REDUCTION
-                    nPassesParallelSum = (int) log2( (float) min(128, cuWidth*cuHeight/16) ); // log2()
-                    stride = itemsPerCuInSatd/2;
-                    baseIdx = (lid/128)*128 + lid%128;
-                    for(int pass=0; pass<nPassesParallelSum; pass++){
-                        if(lid%128 < stride){
-                            localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
-                            stride = stride/2;
-                        }    
-                        barrier(CLK_LOCAL_MEM_FENCE);  
+                    /* TRACE INTERMEDIARY SATD 4X4
+                    if(1 && ctuIdx==0 && cuSizeIdx==_64x64 && mode==0 && currCu==0){//} && lid==0){
+                        printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %ld\n", lid, idx, subblockX, subblockY, satd_4x4(origSubblock, predSubblock));
+                        // printf("Orig subblock\n");
+                        // printf("%d,%d,%d,%d\n", origSubblock.s0, origSubblock.s1, origSubblock.s2, origSubblock.s3);
+                        // printf("%d,%d,%d,%d\n", origSubblock.s4, origSubblock.s5, origSubblock.s6, origSubblock.s7);
+                        // printf("%d,%d,%d,%d\n", origSubblock.s8, origSubblock.s9, origSubblock.sa, origSubblock.sb);
+                        // printf("%d,%d,%d,%d\n", origSubblock.sc, origSubblock.sd, origSubblock.se, origSubblock.sf);
+                    
+                        // printf("Pred subblock\n");
+                        // printf("%d,%d,%d,%d\n", predSubblock.s0, predSubblock.s1, predSubblock.s2, predSubblock.s3);
+                        // printf("%d,%d,%d,%d\n", predSubblock.s4, predSubblock.s5, predSubblock.s6, predSubblock.s7);
+                        // printf("%d,%d,%d,%d\n", predSubblock.s8, predSubblock.s9, predSubblock.sa, predSubblock.sb);
+                        // printf("%d,%d,%d,%d\n\n\n", predSubblock.sc, predSubblock.sd, predSubblock.se, predSubblock.sf);                    
                     }
                     //*/
-                    
-                    
-                    /*
-                    // Sum individual values and reduce SATD in sequential fashion
-                    if(lid%128 == 0){
-                        int currSATD = 0, totalSATD = 0;
-                        for(int sb=1; sb<subblocksPerCu; sb++){
-                            localSATD[lid] += localSATD[lid+sb];
-                            // int subblockX = (sb%subblocksColumnsPerCu)*4;
-                            // int subblockY = (sb/subblocksColumnsPerCu)*4;
-                            // int startRow = subblockY*cuWidth + subblockX;
-                            // for(int row=0; row<4; row++){
-                            //     for(int col=0; col<4; col++)
-                            //         currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow + row*cuWidth + col]);
-                            // }
-                            // currSATD -= abs(localUpsampledPrediction[cuIdxInIteration][startRow]);
-                            // currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow]) >> 2;
-                            // currSATD = (currSATD+1)>>1;
-                            
-                            // totalSATD += currSATD;
-
-                            // // if(1 && ctuIdx==16 && cuSizeIdx==_64x64 && mode==11 && currCu==2 && lid%128==0){
-                            // //     // printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %ld, Total SATD %ld\n", lid, idx, subblockX, subblockY, currSATD, totalSATD);
-                            // //     printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %d, Total SATD %d\n", lid, idx, subblockX, subblockY, currSATD, totalSATD);
-                            // // }
-                            // currSATD = 0;
-                        }
-                        // localSATD[lid] = totalSATD;
-                    }
-                    //*/
-                    barrier(CLK_LOCAL_MEM_FENCE);
-                }
-                
-                
-                if(!NEW_SATD){
-                    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                    //
-                    //      COMPUTE SATD FOR THE CURRENT CU
-                    //*
-                    int idxSubblock;
-                    int nPassesForSatd = max(1,nPassesOriginalFetch/16);
-                    itemsPerCuInSatd = min(32, (cuWidth*cuHeight)/16);
-                    int subblockX, subblockY;
-                    short16 origSubblock, predSubblock;
-
-                    // Here, each workitem will compute the SATD for one or more subblocks 4x4, and accumulate the results in __local localSATD
-                    if((lid%32) < itemsPerCuInSatd){
-                        for(int pass=0; pass<nPassesForSatd; pass++){
-                            idxSubblock = pass*itemsPerCuInSatd + lid%32;
-                            subblockX = (idxSubblock%(cuWidth/4))<<2;
-                            subblockY = (idxSubblock/(cuWidth/4))<<2;
-                            idx = subblockY*(cuWidth/4) + subblockX/4;
-
-
-                            // 1st row                    
-                            origSubblock.lo.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.lo.lo = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
-                            // 2nd row
-                            idx += cuWidth/4;
-                            origSubblock.lo.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.lo.hi = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
-                            // 3rd row
-                            idx += cuWidth/4;
-                            origSubblock.hi.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.hi.lo = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
-                            // 4th row
-                            idx += cuWidth/4;
-                            origSubblock.hi.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.hi.hi = vload4(idx, localUpsampledPrediction[cuIdxInIteration]);
-
-                            localSATD[lid] += satd_4x4(origSubblock, predSubblock);
-                            
-                            /* TRACE INTERMEDIARY SATD 4X4
-                            if(1 && ctuIdx==0 && cuSizeIdx==_64x64 && mode==0 && currCu==0){//} && lid==0){
-                                printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %ld\n", lid, idx, subblockX, subblockY, satd_4x4(origSubblock, predSubblock));
-                                // printf("Orig subblock\n");
-                                // printf("%d,%d,%d,%d\n", origSubblock.s0, origSubblock.s1, origSubblock.s2, origSubblock.s3);
-                                // printf("%d,%d,%d,%d\n", origSubblock.s4, origSubblock.s5, origSubblock.s6, origSubblock.s7);
-                                // printf("%d,%d,%d,%d\n", origSubblock.s8, origSubblock.s9, origSubblock.sa, origSubblock.sb);
-                                // printf("%d,%d,%d,%d\n", origSubblock.sc, origSubblock.sd, origSubblock.se, origSubblock.sf);
-                            
-                                // printf("Pred subblock\n");
-                                // printf("%d,%d,%d,%d\n", predSubblock.s0, predSubblock.s1, predSubblock.s2, predSubblock.s3);
-                                // printf("%d,%d,%d,%d\n", predSubblock.s4, predSubblock.s5, predSubblock.s6, predSubblock.s7);
-                                // printf("%d,%d,%d,%d\n", predSubblock.s8, predSubblock.s9, predSubblock.sa, predSubblock.sb);
-                                // printf("%d,%d,%d,%d\n\n\n", predSubblock.sc, predSubblock.sd, predSubblock.se, predSubblock.sf);                    
-                            }
-                            //*/
-                            
-                            //*
-                        }
-                    }
-
-                    barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SATD computation
-
-                    // PARALLEL REDUCTION
-                    nPassesParallelSum = (int) log2( (float) min(32, cuWidth*cuHeight/16) ); // log2()
-                    stride = itemsPerCuInSatd/2;
-                    baseIdx = (lid/32)*32 + lid%32;
-                    for(int pass=0; pass<nPassesParallelSum; pass++){
-                        if(lid%32 < stride){
-                            localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
-                            stride = stride/2;
-                        }    
-                        barrier(CLK_LOCAL_MEM_FENCE);  
-                    }
                 }
             }
 
+            barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SATD computation
+
+            // PARALLEL REDUCTION
+            nPassesParallelSum = (int) log2( (float) min(32, cuWidth*cuHeight/16) ); // log2()
+            stride = itemsPerCuInSatd/2;
+            baseIdx = (lid/32)*32 + lid%32;
+            for(int pass=0; pass<nPassesParallelSum; pass++){
+                if(lid%32 < stride){
+                    localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
+                    stride = stride/2;
+                }    
+                barrier(CLK_LOCAL_MEM_FENCE);  
+            }
 
             //*/
 
@@ -2158,7 +1395,7 @@ __kernel void upsampleDistortionSizeId1_ALL(__global short *reducedPrediction, c
     }
 }
 
-__kernel void upsampleDistortionSizeId0_ALL(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL, __global long *minSadHad){
+__kernel void upsampleDistortionSizeId0(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
     int gid = get_global_id(0);
     int wg = get_group_id(0);
     int lid = get_local_id(0);
@@ -2192,10 +1429,6 @@ __kernel void upsampleDistortionSizeId0_ALL(__global short *reducedPrediction, c
     const int log2UpsamplingVertical = (int) log2((float) upsamplingVertical);
     const int roundingOffsetVertical = 1 << (log2UpsamplingVertical - 1);
     
-    // TODO: Correct this when supporting more block sizes.
-    // Correct value is upsamplingHorizontal>1 || upsamplingVertical>1;
-    int needUpsampling = 0; 
-
     // ######################################################################
     //      Variables shared for horizontal and vertical interpolation
     int xPosInCu, yPosInCu, xPosInCtu, yPosInCtu, xPosInFrame, yPosInFrame, idx;
@@ -2376,290 +1609,76 @@ __kernel void upsampleDistortionSizeId0_ALL(__global short *reducedPrediction, c
             
             localSATD[lid] = 0;
 
-            // ALLOW SKIPPING SATD TO MEASURE PROCESSING TIME
-            if(CONDUCT_SATD){
-                // TODO: This NEW_SATD method WAS NOT improved to support the remaining block sizes and alignments
-                // if(NEW_SATD){
-                //     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                //     //
-                //     //      ALTERNATIVE SATD COMPUTATION
-                //     int subblocksPerCu = (cuWidth*cuHeight)/16;
-                //     int subblocksColumnsPerCu = cuWidth/4;
-                //     int nPasses = (cuWidth*cuHeight)/32;
+            // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+            //
+            //      COMPUTE SATD FOR THE CURRENT CU
+            int idxSubblock;
+            int nPassesForSatd = max(1,nPassesOriginalFetch/16);
+            itemsPerCuInSatd = min(16, (cuWidth*cuHeight)/16);
+            int subblockX, subblockY;
+            short16 origSubblock, predSubblock;
+
+            // Here, each workitem will compute the SATD for one or more subblocks 4x4, and accumulate the results in __local localSATD
+            if((lid%16) < itemsPerCuInSatd){
+                for(int pass=0; pass<nPassesForSatd; pass++){
+                    idxSubblock = pass*itemsPerCuInSatd + lid%16;
+                    subblockX = (idxSubblock%(cuWidth/4))<<2;
+                    subblockY = (idxSubblock/(cuWidth/4))<<2;
+                    idx = subblockY*(cuWidth/4) + subblockX/4;
+
+
+                    // 1st row                    
+                    origSubblock.lo.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.lo.lo = vload4(idx, localReducedPrediction[cuIdxInIteration]);
+                    // 2nd row
+                    idx += cuWidth/4;
+                    origSubblock.lo.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.lo.hi = vload4(idx, localReducedPrediction[cuIdxInIteration]);
+                    // 3rd row
+                    idx += cuWidth/4;
+                    origSubblock.hi.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.hi.lo = vload4(idx, localReducedPrediction[cuIdxInIteration]);
+                    // 4th row
+                    idx += cuWidth/4;
+                    origSubblock.hi.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
+                    predSubblock.hi.hi = vload4(idx, localReducedPrediction[cuIdxInIteration]);
+
+                    localSATD[lid] += satd_4x4(origSubblock, predSubblock);
                     
-                //     // TODO: Transform this section into a function
-                //     // Compute transformed differences at the 4x4-level
-                //     for(int pass=0; pass<nPasses; pass++){
-                //         int idx = pass*32 + lid%32;
-                //         int currSubblock = idx/16;
-                //         int subblockX = (currSubblock%subblocksColumnsPerCu)*4;
-                //         int subblockY = (currSubblock/subblocksColumnsPerCu)*4;
-                //         // Position of the sample that will be computed
-                //         int i = idx%16;
-                //         int i_xInCu = subblockX + i%4;
-                //         int i_yInCu = subblockY + i/4;
-                //         int i_idxInCu = i_yInCu*cuWidth + i_xInCu;
-                //         // Used to index the arguments of the SATD for one position, and store the temporary value before updating the array
-                //         int j, j_xInCu, j_yInCu, k, k_xInCu, k_yInCu, f_i;
-                //         int j_idxInCu, k_idxInCu;
-                //         int tempValue;
-
-                //         // Now the hadamard transform is applied to the 4x4 blocks. We derive the index of operands and operation (+/-) based on the index of current coefficient
-                //         // m[i] = diff[j] +/-(f_i) diff[k]
-                //         // The values of j, f_i and k are computed based on i
-
-                //         // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                //         // 
-                //         // 1st
-                //         j = i - 4*(i>=8) - 8*(i>=12);
-                //         k = 12 + i - 8*(i>=4) - 4*(i>=8);
-                //         f_i = i<8 ? 1 : -1;
-                        
-                //         j_xInCu = subblockX + j%4;
-                //         j_yInCu = subblockY + j/4;
-                //         j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                //         k_xInCu = subblockX + k%4;
-                //         k_yInCu = subblockY + k/4;
-                //         k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                //         // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                //         tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                //         // barrier(CLK_LOCAL_MEM_FENCE);
-
-                //         // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                //         localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                //         // barrier(CLK_LOCAL_MEM_FENCE);
-
-                //         // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                //         // 
-                //         // 2nd
-                //         j = i + 4*(i>=4) - 12*(i>=8) + 8*(i>=12);
-                //         k = 4 + i + 4*(i>=4) - 12*(i>=8);
-                //         f_i = i<8 ? 1 : -1;
-                        
-                //         j_xInCu = subblockX + j%4;
-                //         j_yInCu = subblockY + j/4;
-                //         j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                //         k_xInCu = subblockX + k%4;
-                //         k_yInCu = subblockY + k/4;
-                //         k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                //         // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                //         tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                //         // barrier(CLK_LOCAL_MEM_FENCE);
-
-                //         // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                //         localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                //         // barrier(CLK_LOCAL_MEM_FENCE);                
-
-
-                //         // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                //         // 
-                //         // 3rd
-                //         j = 4*(i/4) + 1*(i%4==1) + 1*(i%4==2);
-                //         k = 3 + 4*(i/4) - 1*(i%4==1) - 1*(i%4==2);
-                //         f_i = i%4<2 ? 1 : -1;
-                        
-                //         j_xInCu = subblockX + j%4;
-                //         j_yInCu = subblockY + j/4;
-                //         j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                //         k_xInCu = subblockX + k%4;
-                //         k_yInCu = subblockY + k/4;
-                //         k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                //         // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                //         tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                //         // barrier(CLK_LOCAL_MEM_FENCE);
-
-                //         // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                //         localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                //         // barrier(CLK_LOCAL_MEM_FENCE);  
-
-                //         // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                //         // 
-                //         // 4th
-                //         j = 4*(i/4) + 2*(i%4==2) + 3*(i%4==3);
-                //         k = 1 + 4*(i/4) + 2*(i%4==2) + 1*(i%4==3);
-                //         f_i = i%2==0 ? 1 : -1;
-                        
-                //         j_xInCu = subblockX + j%4;
-                //         j_yInCu = subblockY + j/4;
-                //         j_idxInCu = j_yInCu*cuWidth + j_xInCu;
-
-                //         k_xInCu = subblockX + k%4;
-                //         k_yInCu = subblockY + k/4;
-                //         k_idxInCu = k_yInCu*cuWidth + k_xInCu;
-                //         // compute m[i] but do not overwrite the original buffer yet. Wait until all items have computed their temporary values
-                //         tempValue = localUpsampledPrediction[cuIdxInIteration][j_idxInCu] + f_i*localUpsampledPrediction[cuIdxInIteration][k_idxInCu];
-                //         // barrier(CLK_LOCAL_MEM_FENCE);
-
-                //         // TODO: MAYBE it is not necessary to synch the workitems here because the next iteration will work over a different set of values. Only synch outside the for loop
-                //         // Update the matrix with the updated value and synch between workitems. These values will be used to compute the next temp value
-                //         localUpsampledPrediction[cuIdxInIteration][i_idxInCu] = tempValue;
-                //         barrier(CLK_LOCAL_MEM_FENCE);  
-                //     }
-
-
-                //     //* 
-                //     // REDUCE TOTAL SATD IN PARALLEL
-                //     // At this point we have the transformed differences for all subblocks 4x4.
-                //     // Now each workitem will sum the absolute coefficients and save in its position in localSATD[lid]
-                //     // Then, these values are reduced
-                //     itemsPerCuInSatd = min(128, (cuWidth*cuHeight)/16);
-                //     int nPassesSumCoefficients = max(1, subblocksPerCu/itemsPerCuInSatd);
-                //     if(lid%128<itemsPerCuInSatd){
-                //         int sb, subblockX, subblockY, startRow, currSATD;
-                //         for(int pass=0; pass<nPassesSumCoefficients; pass++){
-                //             sb = pass*itemsPerCuInSatd + lid%128; // Subblock this workitem will process
-                //             currSATD = 0;
-                //             subblockX = (sb%subblocksColumnsPerCu)*4;
-                //             subblockY = (sb/subblocksColumnsPerCu)*4;
-                //             startRow = subblockY*cuWidth + subblockX;
-                //             for(int row=0; row<4; row++){
-                //                 for(int col=0; col<4; col++){
-                //                     currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow + row*cuWidth + col]);
-                //                 }
-                //             }
-                //             currSATD -= abs(localUpsampledPrediction[cuIdxInIteration][startRow]);
-                //             currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow]) >> 2;
-                //             currSATD = ((currSATD+1)>>1);
-                            
-                //             // if(1 && ctuIdx==0 && cuSizeIdx==_64x64 && currCu==0 && mode==0){// } && lid%128==0){
-                //             //     printf("CTU=%d,cuSize=%d,cuIdx=%d,sb=%d,SATD=%d\n", ctuIdx, cuSizeIdx, currCu, sb, currSATD);
-                //             // }
-
-
-                //             localSATD[lid] += currSATD;
-                //             currSATD = 0;
-                //         }
-                //     }
-                //     barrier(CLK_LOCAL_MEM_FENCE);  // Wait until all partial SATDs are computed
-                //     //*/
-
-                //     //*
-                //     // PARALLEL REDUCTION
-                //     nPassesParallelSum = (int) log2( (float) min(128, cuWidth*cuHeight/16) ); // log2()
-                //     stride = itemsPerCuInSatd/2;
-                //     baseIdx = (lid/128)*128 + lid%128;
-                //     for(int pass=0; pass<nPassesParallelSum; pass++){
-                //         if(lid%128 < stride){
-                //             localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
-                //             stride = stride/2;
-                //         }    
-                //         barrier(CLK_LOCAL_MEM_FENCE);  
-                //     }
-                //     //*/
+                    /* TRACE INTERMEDIARY SATD 4X4
+                    if(1 && ctuIdx==0 && cuSizeIdx==_64x64 && mode==0 && currCu==0){//} && lid==0){
+                        printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %ld\n", lid, idx, subblockX, subblockY, satd_4x4(origSubblock, predSubblock));
+                        // printf("Orig subblock\n");
+                        // printf("%d,%d,%d,%d\n", origSubblock.s0, origSubblock.s1, origSubblock.s2, origSubblock.s3);
+                        // printf("%d,%d,%d,%d\n", origSubblock.s4, origSubblock.s5, origSubblock.s6, origSubblock.s7);
+                        // printf("%d,%d,%d,%d\n", origSubblock.s8, origSubblock.s9, origSubblock.sa, origSubblock.sb);
+                        // printf("%d,%d,%d,%d\n", origSubblock.sc, origSubblock.sd, origSubblock.se, origSubblock.sf);
                     
-                    
-                //     /*
-                //     // Sum individual values and reduce SATD in sequential fashion
-                //     if(lid%128 == 0){
-                //         int currSATD = 0, totalSATD = 0;
-                //         for(int sb=1; sb<subblocksPerCu; sb++){
-                //             localSATD[lid] += localSATD[lid+sb];
-                //             // int subblockX = (sb%subblocksColumnsPerCu)*4;
-                //             // int subblockY = (sb/subblocksColumnsPerCu)*4;
-                //             // int startRow = subblockY*cuWidth + subblockX;
-                //             // for(int row=0; row<4; row++){
-                //             //     for(int col=0; col<4; col++)
-                //             //         currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow + row*cuWidth + col]);
-                //             // }
-                //             // currSATD -= abs(localUpsampledPrediction[cuIdxInIteration][startRow]);
-                //             // currSATD += abs(localUpsampledPrediction[cuIdxInIteration][startRow]) >> 2;
-                //             // currSATD = (currSATD+1)>>1;
-                            
-                //             // totalSATD += currSATD;
-
-                //             // // if(1 && ctuIdx==16 && cuSizeIdx==_64x64 && mode==11 && currCu==2 && lid%128==0){
-                //             // //     // printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %ld, Total SATD %ld\n", lid, idx, subblockX, subblockY, currSATD, totalSATD);
-                //             // //     printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %d, Total SATD %d\n", lid, idx, subblockX, subblockY, currSATD, totalSATD);
-                //             // // }
-                //             // currSATD = 0;
-                //         }
-                //         // localSATD[lid] = totalSATD;
-                //     }
-                //     //*/
-                //     barrier(CLK_LOCAL_MEM_FENCE);
-                // }
-                
-                
-                if(!NEW_SATD){
-                    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-                    //
-                    //      COMPUTE SATD FOR THE CURRENT CU
-                    //*
-                    int idxSubblock;
-                    int nPassesForSatd = max(1,nPassesOriginalFetch/16);
-                    itemsPerCuInSatd = min(16, (cuWidth*cuHeight)/16);
-                    int subblockX, subblockY;
-                    short16 origSubblock, predSubblock;
-
-                    // Here, each workitem will compute the SATD for one or more subblocks 4x4, and accumulate the results in __local localSATD
-                    if((lid%16) < itemsPerCuInSatd){
-                        for(int pass=0; pass<nPassesForSatd; pass++){
-                            idxSubblock = pass*itemsPerCuInSatd + lid%16;
-                            subblockX = (idxSubblock%(cuWidth/4))<<2;
-                            subblockY = (idxSubblock/(cuWidth/4))<<2;
-                            idx = subblockY*(cuWidth/4) + subblockX/4;
-
-
-                            // 1st row                    
-                            origSubblock.lo.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.lo.lo = vload4(idx, localReducedPrediction[cuIdxInIteration]);
-                            // 2nd row
-                            idx += cuWidth/4;
-                            origSubblock.lo.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.lo.hi = vload4(idx, localReducedPrediction[cuIdxInIteration]);
-                            // 3rd row
-                            idx += cuWidth/4;
-                            origSubblock.hi.lo = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.hi.lo = vload4(idx, localReducedPrediction[cuIdxInIteration]);
-                            // 4th row
-                            idx += cuWidth/4;
-                            origSubblock.hi.hi = vload4(idx, localOriginalSamples[cuIdxInIteration]);
-                            predSubblock.hi.hi = vload4(idx, localReducedPrediction[cuIdxInIteration]);
-
-                            localSATD[lid] += satd_4x4(origSubblock, predSubblock);
-                            
-                            /* TRACE INTERMEDIARY SATD 4X4
-                            if(1 && ctuIdx==0 && cuSizeIdx==_64x64 && mode==0 && currCu==0){//} && lid==0){
-                                printf("lid=%d, idx=%d, subX=%d, subY=%d, Partial SATD %ld\n", lid, idx, subblockX, subblockY, satd_4x4(origSubblock, predSubblock));
-                                // printf("Orig subblock\n");
-                                // printf("%d,%d,%d,%d\n", origSubblock.s0, origSubblock.s1, origSubblock.s2, origSubblock.s3);
-                                // printf("%d,%d,%d,%d\n", origSubblock.s4, origSubblock.s5, origSubblock.s6, origSubblock.s7);
-                                // printf("%d,%d,%d,%d\n", origSubblock.s8, origSubblock.s9, origSubblock.sa, origSubblock.sb);
-                                // printf("%d,%d,%d,%d\n", origSubblock.sc, origSubblock.sd, origSubblock.se, origSubblock.sf);
-                            
-                                // printf("Pred subblock\n");
-                                // printf("%d,%d,%d,%d\n", predSubblock.s0, predSubblock.s1, predSubblock.s2, predSubblock.s3);
-                                // printf("%d,%d,%d,%d\n", predSubblock.s4, predSubblock.s5, predSubblock.s6, predSubblock.s7);
-                                // printf("%d,%d,%d,%d\n", predSubblock.s8, predSubblock.s9, predSubblock.sa, predSubblock.sb);
-                                // printf("%d,%d,%d,%d\n\n\n", predSubblock.sc, predSubblock.sd, predSubblock.se, predSubblock.sf);                    
-                            }
-                            //*/
-                            
-                            //*
-                        }
+                        // printf("Pred subblock\n");
+                        // printf("%d,%d,%d,%d\n", predSubblock.s0, predSubblock.s1, predSubblock.s2, predSubblock.s3);
+                        // printf("%d,%d,%d,%d\n", predSubblock.s4, predSubblock.s5, predSubblock.s6, predSubblock.s7);
+                        // printf("%d,%d,%d,%d\n", predSubblock.s8, predSubblock.s9, predSubblock.sa, predSubblock.sb);
+                        // printf("%d,%d,%d,%d\n\n\n", predSubblock.sc, predSubblock.sd, predSubblock.se, predSubblock.sf);                    
                     }
-
-                    barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SATD computation
-
-                    // PARALLEL REDUCTION
-                    nPassesParallelSum = (int) log2( (float) min(16, cuWidth*cuHeight/16) ); // log2()
-                    stride = itemsPerCuInSatd/2;
-                    baseIdx = (lid/16)*16 + lid%16;
-                    for(int pass=0; pass<nPassesParallelSum; pass++){
-                        if(lid%16 < stride){
-                            localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
-                            stride = stride/2;
-                        }    
-                        barrier(CLK_LOCAL_MEM_FENCE);  
-                    }
+                    //*/
+                    
                 }
             }
 
+            barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SATD computation
 
-            //*/
+            // PARALLEL REDUCTION
+            nPassesParallelSum = (int) log2( (float) min(16, cuWidth*cuHeight/16) ); // log2()
+            stride = itemsPerCuInSatd/2;
+            baseIdx = (lid/16)*16 + lid%16;
+            for(int pass=0; pass<nPassesParallelSum; pass++){
+                if(lid%16 < stride){
+                    localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
+                    stride = stride/2;
+                }    
+                barrier(CLK_LOCAL_MEM_FENCE);  
+            }
+
 
             // Save SAD and SATD of current CU/mode in a __local buffer. We only access global memory when all SAD values are computed or all CUs
             if(lid==0){

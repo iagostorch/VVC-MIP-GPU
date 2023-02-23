@@ -366,7 +366,7 @@ int main(int argc, char *argv[])
     // Used to export the kernel results into proper files or the terminal
     string exportFileName;
 
-    int enableTerminalReport = 1;
+    int enableTerminalReport = 0;
     int reportReducedBoundaries = 1;
     int reportCompleteBoundaries = 1;
     int reportReducedPrediction = 1;
@@ -429,9 +429,9 @@ int main(int argc, char *argv[])
     itemsPerWG = itemsPerWG_obtainReducedBoundaries;
 
     // Create kernel
-    kernel_initRefSamples = clCreateKernel(program, "initBoundariesSquareSizeId2_ALL", &error);
-    probe_error(error, (char*)"Error creating initBoundariesSquareSizeId2 kernel\n"); 
-    printf("Performing initBoundariesSquareSizeId2 kernel...\n");
+    kernel_initRefSamples = clCreateKernel(program, "initBoundaries", &error);
+    probe_error(error, (char*)"Error creating initBoundaries kernel\n"); 
+    printf("Performing initBoundaries kernel...\n");
 
     // Query for work groups sizes information
     error = clGetKernelWorkGroupInfo(kernel_initRefSamples, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
@@ -443,7 +443,7 @@ int main(int argc, char *argv[])
     cout << "-- Preferred WG size multiple " << preferred_size << endl;
     cout << "-- Maximum WG size " << maximum_size << endl;
 
-    // Set the arguments of the kernel initBoundariesSquareSizeId2
+    // Set the arguments of the kernel initBoundaries
     error_1 = clSetKernelArg(kernel_initRefSamples, 0, sizeof(cl_mem), (void *)&referenceFrame_memObj);
     error_1 |= clSetKernelArg(kernel_initRefSamples, 1, sizeof(cl_int), (void *)&frameWidth);
     error_1 |= clSetKernelArg(kernel_initRefSamples, 2, sizeof(cl_int), (void *)&frameHeight);
@@ -503,9 +503,9 @@ int main(int argc, char *argv[])
     itemsPerWG = itemsPerWG_obtainReducedPrediction;
 
     // Create kernel
-    kernel_reducedPrediction = clCreateKernel(program, "MIP_SizeId2_ALL", &error);
-    probe_error(error, (char *)"Error creating MIP_SizeId2 kernel\n");
-    printf("Performing MIP_SizeId2 kernel...\n");
+    kernel_reducedPrediction = clCreateKernel(program, "MIP_ReducedPred", &error);
+    probe_error(error, (char *)"Error creating MIP_ReducedPred kernel\n");
+    printf("Performing MIP_ReducedPred kernel...\n");
 
     // Query for work groups sizes information
     error = clGetKernelWorkGroupInfo(kernel_reducedPrediction, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
@@ -517,15 +517,14 @@ int main(int argc, char *argv[])
     cout << "-- Preferred WG size multiple " << preferred_size << endl;
     cout << "-- Maximum WG size " << maximum_size << endl;
 
-    // Set the arguments of the MIP_SizeId2 kernel
+    // Set the arguments of the MIP_ReducedPred kernel
     error_1  = clSetKernelArg(kernel_reducedPrediction, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 1, sizeof(cl_int), (void *)&frameWidth);
     error_1 |= clSetKernelArg(kernel_reducedPrediction, 2, sizeof(cl_int), (void *)&frameHeight);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 3, sizeof(cl_mem), (void *)&return_SAD_memObj);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 4, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 3, sizeof(cl_mem), (void *)&referenceFrame_memObj);
     // Unified reduced boundariers
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 5, sizeof(cl_mem), (void *)&redT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 6, sizeof(cl_mem), (void *)&redL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 4, sizeof(cl_mem), (void *)&redT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_reducedPrediction, 5, sizeof(cl_mem), (void *)&redL_all_memObj);
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
@@ -572,7 +571,7 @@ int main(int argc, char *argv[])
     //          START WITH CUs OF SizeID=2
 
     // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId2_ALL", &error);
+    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId2", &error);
     probe_error(error, (char *)"Error creating upsampleDistortionSizeId2 kernel\n");
     printf("Performing upsampleDistortionSizeId2 kernel...\n");
 
@@ -593,13 +592,14 @@ int main(int argc, char *argv[])
     // Reference samples and final distortion
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_SAD_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&return_SATD_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
     // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&redT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redL_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refL_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&redL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&refL_all_memObj);
+    
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
@@ -631,7 +631,7 @@ int main(int argc, char *argv[])
     //          PROCEED TO CUs OF SizeID=1
 
     // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId1_ALL", &error);
+    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId1", &error);
     probe_error(error, (char *)"Error creating upsampleDistortionSizeId1 kernel\n");
     printf("Performing upsampleDistortionSizeId1 kernel...\n");
 
@@ -645,20 +645,20 @@ int main(int argc, char *argv[])
     cout << "-- Preferred WG size multiple " << preferred_size << endl;
     cout << "-- Maximum WG size " << maximum_size << endl;
 
-    // Set the arguments of the upsampleDistortionSizeId2 kernel
+    // Set the arguments of the upsampleDistortionSizeId1 kernel
     error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
     // Reference samples and final distortion
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_SAD_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&return_SATD_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
     // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&redT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redL_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refL_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&redL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&refL_all_memObj);
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
@@ -690,7 +690,7 @@ int main(int argc, char *argv[])
     //          PROCEED TO CUs OF SizeID=0
 
     // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId0_ALL", &error);
+    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId0", &error);
     probe_error(error, (char *)"Error creating upsampleDistortionSizeId0 kernel\n");
     printf("Performing upsampleDistortionSizeId0 kernel...\n");
 
@@ -704,20 +704,20 @@ int main(int argc, char *argv[])
     cout << "-- Preferred WG size multiple " << preferred_size << endl;
     cout << "-- Maximum WG size " << maximum_size << endl;
 
-    // Set the arguments of the upsampleDistortionSizeId2 kernel
+    // Set the arguments of the upsampleDistortionSizeId0 kernel
     error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
     // Reference samples and final distortion
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_SAD_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&return_SATD_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
     // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&redT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redL_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refL_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&redL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&refL_all_memObj);
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
