@@ -207,6 +207,10 @@ const char* translateCuSizeIdx_ALL(int cuSize){
     else if(cuSize==ALL_NA_4x8_G1)
         return "ALL_NA_4x8_G1";
 
+    // SizeId=0
+    else if(cuSize==ALL_AL_4x4)
+        return "ALL_AL_4x4";
+
     else    
         return "ERROR";
 }
@@ -393,7 +397,7 @@ void readMemobjsIntoArray_reducedPrediction(cl_command_queue command_queue, int 
     readTime_reducedPrediction = nanoSeconds;
 }
 
-void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, int nPredictionModes, cl_mem return_SAD_memObj, long *return_SAD, cl_mem return_SATD_memObj, long *return_SATD){
+void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, int nPredictionModes, cl_mem return_SAD_memObj, long *return_SAD, cl_mem return_SATD_memObj, long *return_SATD, cl_mem return_minSadHad_memObj, long *return_minSadHad){
     int error;
     double nanoSeconds = 0.0;
     cl_ulong read_time_start, read_time_end;
@@ -421,8 +425,18 @@ void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, 
     clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
     nanoSeconds += read_time_end-read_time_start;
 
-    readTime_SAD = nanoSeconds;
+    error =  clEnqueueReadBuffer(command_queue, return_minSadHad_memObj, CL_TRUE, 0, 
+            nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_minSadHad, 0, NULL, &read_event);
+    probe_error(error, (char*)"Error reading return prediction\n");
+    error = clWaitForEvents(1, &read_event);
+    probe_error(error, (char*)"Error waiting for read events\n");
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing read\n");
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds += read_time_end-read_time_start;
 
+    readTime_SAD = nanoSeconds;
 }
 
 // Read data from memory objects into arrays
@@ -483,9 +497,9 @@ void readMemobjsIntoArray(cl_command_queue command_queue, int numPredictions, in
     probe_error(error, (char*)"Error reading returned memory objects into malloc'd arrays\n");
 }
 
-void reportAllDistortionValues_ALL(long int *SAD, long int *SATD, int nCTUs){
+void reportAllDistortionValues_ALL(long int *SAD, long int *SATD, long int *minSadHad, int nCTUs){
     printf("-=-=-=-=-=-=-=-=- DISTORTION RESULTS FOR ALL CTUs -=-=-=-=-=-=-=-=-\n");
-    printf("CTU,cuSize,CU,Mode,SAD,SATD\n");
+    printf("CTU,cuSize,CU,Mode,SAD,SATD,minSadHad\n");
     for(int ctu=0; ctu<nCTUs; ctu++){
         // SizeID=2
         for(int cuSize=0; cuSize<NUM_CU_SIZES_SizeId2; cuSize++){
@@ -494,7 +508,8 @@ void reportAllDistortionValues_ALL(long int *SAD, long int *SATD, int nCTUs){
                     // printf("%d,%d,%d,%d,", ctu, cuSize, cu, mode);  //  Report CU size/position info
                     printf("%d,%s,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), cu, mode);  //  Report CU size/position info
                     printf("%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
-                    printf("%ld\n", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                    printf("%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                    printf("%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
                 }
             }
         }
@@ -506,20 +521,34 @@ void reportAllDistortionValues_ALL(long int *SAD, long int *SATD, int nCTUs){
                     // printf("%d,%d,%d,%d,", ctu, cuSize, cu, mode);  //  Report CU size/position info
                     printf("%d,%s,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), cu, mode);  //  Report CU size/position info
                     printf("%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
-                    printf("%ld\n", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                    printf("%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                    printf("%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                }
+            }
+        }
+        // SizeId=0
+        for(int offset=0; offset<NUM_CU_SIZES_SizeId0; offset++){
+            int cuSize = offset+FIRST_SizeId0;
+            for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
+                for(int mode=0; mode<PREDICTION_MODES_ID0*2; mode++){
+                    // printf("%d,%d,%d,%d,", ctu, cuSize, cu, mode);  //  Report CU size/position info
+                    printf("%d,%s,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), cu, mode);  //  Report CU size/position info
+                    printf("%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                    printf("%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                    printf("%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
                 }
             }
         }
     }
 }
 
-void exportAllDistortionValues_File(long int *SAD, long int *SATD, int nCTUs, int frameWidth, string outputFile){
+void exportAllDistortionValues_File(long int *SAD, long int *SATD, long int *minSadHad, int nCTUs, int frameWidth, string outputFile){
     int ctuCols = ceil(frameWidth/128.0);
 
     FILE *distortionFile;
     string outputFileName = outputFile + ".csv";
     distortionFile = fopen(outputFileName.c_str(),"w");
-    fprintf(distortionFile,"CTU,cuSizeName,W,H,CU,X,Y,Mode,SAD,SATD\n");
+    fprintf(distortionFile,"CTU,cuSizeName,W,H,CU,X,Y,Mode,SAD,SATD,minSadHad\n");
 
     // printf("-=-=-=-=-=-=-=-=- DISTORTION RESULTS FOR ALL CTUs -=-=-=-=-=-=-=-=-\n");
     // printf("CTU,cuSizeName,W,H,CU,X,Y,Mode,SAD,SATD\n");
@@ -537,7 +566,8 @@ void exportAllDistortionValues_File(long int *SAD, long int *SATD, int nCTUs, in
                 for(int mode=0; mode<PREDICTION_MODES_ID2*2; mode++){
                     fprintf(distortionFile, "%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
                     fprintf(distortionFile, "%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
-                    fprintf(distortionFile, "%ld\n", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                    fprintf(distortionFile, "%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                    fprintf(distortionFile, "%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
                 }
             }
         }
@@ -552,17 +582,34 @@ void exportAllDistortionValues_File(long int *SAD, long int *SATD, int nCTUs, in
                 for(int mode=0; mode<PREDICTION_MODES_ID1*2; mode++){
                     fprintf(distortionFile, "%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
                     fprintf(distortionFile, "%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
-                    fprintf(distortionFile, "%ld\n", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                    fprintf(distortionFile, "%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                    fprintf(distortionFile, "%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
                 }
             }
         }
+
+        // SizeID=0
+        for(int offset=0; offset<NUM_CU_SIZES_SizeId0; offset++){
+            int cuSize = offset+FIRST_SizeId0;
+            for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
+                cuX = ctuX + 4*(cu%32); // ALL_X_POS[cuSize][cu];
+                cuY = ctuY + 4*(cu/32); // ALL_Y_POS[cuSize][cu];
+
+                for(int mode=0; mode<PREDICTION_MODES_ID0*2; mode++){
+                    fprintf(distortionFile, "%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
+                    fprintf(distortionFile, "%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                    fprintf(distortionFile, "%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                    fprintf(distortionFile, "%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                }
+            }
+        }        
     }
     fclose(distortionFile);
 }
 
-void reportTargetDistortionValues_ALL(long int *SAD, long int *SATD, int nCTUs, int targetCTU){
+void reportTargetDistortionValues_ALL(long int *SAD, long int *SATD, long int *minSadHad, int nCTUs, int targetCTU){
     printf("-=-=-=-=-=-=-=-=- DISTORTION RESULTS FOR CTU %d -=-=-=-=-=-=-=-=-\n", targetCTU);
-    printf("CTU,cuSize,CU,Mode,SAD,SATD\n");
+    printf("CTU,cuSize,CU,Mode,SAD,SATD,minSadHad\n");
     // SizeID=2
     for(int cuSize=0; cuSize<NUM_CU_SIZES_SizeId2; cuSize++){
         for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
@@ -570,7 +617,8 @@ void reportTargetDistortionValues_ALL(long int *SAD, long int *SATD, int nCTUs, 
                 // printf("%d,%d,%d,%d,", ctu, cuSize, cu, mode);  //  Report CU size/position info
                 printf("%d,%s,%d,%d,", targetCTU, translateCuSizeIdx_ALL(cuSize), cu, mode);  //  Report CU size/position info
                 printf("%ld,", SAD[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
-                printf("%ld\n", SATD[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                printf("%ld,", SATD[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                printf("%ld\n", minSadHad[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
             }
         }
     }
@@ -582,20 +630,34 @@ void reportTargetDistortionValues_ALL(long int *SAD, long int *SATD, int nCTUs, 
                 // printf("%d,%d,%d,%d,", ctu, cuSize, cu, mode);  //  Report CU size/position info
                 printf("%d,%s,%d,%d,", targetCTU, translateCuSizeIdx_ALL(cuSize), cu, mode);  //  Report CU size/position info
                 printf("%ld,", SAD[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
-                printf("%ld\n", SATD[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                printf("%ld,", SATD[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                printf("%ld\n", minSadHad[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+            }
+        }
+    }
+    // SizeID=0
+    for(int offset=0; offset<NUM_CU_SIZES_SizeId0; offset++){
+        int cuSize = offset+FIRST_SizeId0;
+        for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
+            for(int mode=0; mode<PREDICTION_MODES_ID0*2; mode++){
+                // printf("%d,%d,%d,%d,", ctu, cuSize, cu, mode);  //  Report CU size/position info
+                printf("%d,%s,%d,%d,", targetCTU, translateCuSizeIdx_ALL(cuSize), cu, mode);  //  Report CU size/position info
+                printf("%ld,", SAD[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                printf("%ld,", SATD[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                printf("%ld\n", minSadHad[ targetCTU*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
             }
         }
     }
 }
 
-void reportTargetDistortionValues_File(long int *SAD, long int *SATD, int targetCtu, int frameWidth, string outputFile){
+void reportTargetDistortionValues_File(long int *SAD, long int *SATD, long int *minSadHad, int targetCtu, int frameWidth, string outputFile){
     int ctu = targetCtu;
     int ctuCols = ceil(frameWidth/128.0);
 
     FILE *distortionFile;
     string outputFileName = outputFile + ".csv";
     distortionFile = fopen(outputFileName.c_str(),"w");
-    fprintf(distortionFile,"CTU,cuSizeName,W,H,CU,X,Y,Mode,SAD,SATD\n");
+    fprintf(distortionFile,"CTU,cuSizeName,W,H,CU,X,Y,Mode,SAD,SATD,minSadHad\n");
 
     int ctuX, ctuY, cuX, cuY;
     ctuX = 128*(targetCtu%ctuCols);
@@ -610,7 +672,8 @@ void reportTargetDistortionValues_File(long int *SAD, long int *SATD, int target
             for(int mode=0; mode<PREDICTION_MODES_ID2*2; mode++){
                 fprintf(distortionFile, "%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
                 fprintf(distortionFile, "%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
-                fprintf(distortionFile, "%ld\n", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                fprintf(distortionFile, "%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                fprintf(distortionFile, "%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
             }
         }
     }
@@ -624,10 +687,26 @@ void reportTargetDistortionValues_File(long int *SAD, long int *SATD, int target
             for(int mode=0; mode<PREDICTION_MODES_ID1*2; mode++){
                 fprintf(distortionFile, "%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
                 fprintf(distortionFile, "%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
-                fprintf(distortionFile, "%ld\n", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                fprintf(distortionFile, "%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                fprintf(distortionFile, "%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
             }
         }
     }
+    // SizeID=0
+    for(int offset=0; offset<NUM_CU_SIZES_SizeId0; offset++){
+        int cuSize = offset+FIRST_SizeId0;
+        for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
+            cuX = ctuX + 4*(cu%32); //ALL_X_POS[cuSize][cu];
+            cuY = ctuY + 4*(cu/32); // ALL_Y_POS[cuSize][cu];
+
+            for(int mode=0; mode<PREDICTION_MODES_ID0*2; mode++){
+                fprintf(distortionFile, "%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
+                fprintf(distortionFile, "%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                fprintf(distortionFile, "%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                fprintf(distortionFile, "%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+            }
+        }
+    }    
     fclose(distortionFile);
 }
 
@@ -658,7 +737,7 @@ void readMemobjsIntoArray_UnifiedBoundaries(cl_command_queue command_queue, int 
     cl_event read_event;
     
     error =  clEnqueueReadBuffer(command_queue, redT_all_memObj, CL_TRUE, 0, 
-            nCTUs * ALL_TOTAL_CUS_PER_CTU * 4 * sizeof(cl_short), return_unified_redT, 0, NULL, &read_event);
+            nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(cl_short), return_unified_redT, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return reduced boundaries\n");
     error = clWaitForEvents(1, &read_event);
     probe_error(error, (char*)"Error waiting for read events\n");
@@ -669,7 +748,7 @@ void readMemobjsIntoArray_UnifiedBoundaries(cl_command_queue command_queue, int 
     nanoSeconds += read_time_end-read_time_start;
 
     error =  clEnqueueReadBuffer(command_queue, redL_all_memObj, CL_TRUE, 0, 
-            nCTUs * ALL_TOTAL_CUS_PER_CTU * 4 * sizeof(cl_short), return_unified_redL, 0, NULL, &read_event);
+            nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(cl_short), return_unified_redL, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return reduced boundaries\n");
     error = clWaitForEvents(1, &read_event);
     probe_error(error, (char*)"Error waiting for read events\n");
@@ -712,40 +791,36 @@ void readMemobjsIntoArray_UnifiedBoundaries(cl_command_queue command_queue, int 
 
 void reportReducedBoundariesTargetCtu_ALL(short *unified_redT, short *unified_redL, int targetCTU, int frameWidth, int frameHeight){
     printf("=-=-=-=-=- UNIFIED RESULTS FOR CTU %d @(%dx%d)\n", targetCTU, 128 * (targetCTU % (int) ceil(frameWidth/128)), 128 * (targetCTU / (int) ceil(frameWidth/128)));
-    
+    int ctuIdx = targetCTU * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0);
+
     printf("=-=-=-=-=- REDUCED TOP BOUNDARIES RESULTS -=-=-=-=-=\n");
     for(int cuSizeIdx=0; cuSizeIdx<ALL_NUM_CU_SIZES; cuSizeIdx++){
         int boundarySize = ALL_reducedBoundarySizes[cuSizeIdx];
-        // TODO: For SizeId=0 the boundaries are small and we will need a different way to address this
-        if(boundarySize>2){
-            printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
-            for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
-                printf("CU %d\n", cu);
-                for(int b=0; b<boundarySize; b++){
-                    printf("%d,", unified_redT[targetCTU*ALL_TOTAL_CUS_PER_CTU*boundarySize + ALL_stridedCusPerCtu[cuSizeIdx]*boundarySize + cu*boundarySize + b]);
-                }
-                printf("\n");
+        printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
+        for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
+            printf("CU %d\n", cu);
+            for(int b=0; b<boundarySize; b++){
+                // Even though CUs 4x4 have reducedBoundarySize=2, the ALL_stridedCusPerCtu points ot the start of the current CU size and all previous sizes have reducedboundarySize=4
+                printf("%d,", unified_redT[ctuIdx + ALL_stridedCusPerCtu[cuSizeIdx]*LARGEST_RED_BOUNDARY + cu*boundarySize + b]);
             }
             printf("\n");
         }
-
+        printf("\n");
     }
 
     printf("=-=-=-=-=- REDUCED LEFT BOUNDARIES RESULTS -=-=-=-=-=\n");
     for(int cuSizeIdx=0; cuSizeIdx<ALL_NUM_CU_SIZES; cuSizeIdx++){
         int boundarySize = ALL_reducedBoundarySizes[cuSizeIdx];
-        // TODO: For SizeId=0 the boundaries are small and we will need a different way to address this
-        if(boundarySize>2){
-            printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
-            for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
-                printf("CU %d\n", cu);
-                for(int b=0; b<boundarySize; b++){
-                    printf("%d,", unified_redL[targetCTU*ALL_TOTAL_CUS_PER_CTU*boundarySize + ALL_stridedCusPerCtu[cuSizeIdx]*boundarySize + cu*boundarySize + b]);
-                }
-                printf("\n");
+        printf("RESULTS FOR %s\n", translateCuSizeIdx_ALL(cuSizeIdx));
+        for (int cu = 0; cu < ALL_cusPerCtu[cuSizeIdx]; cu++){
+            printf("CU %d\n", cu);
+            for(int b=0; b<boundarySize; b++){
+                // Even though CUs 4x4 have reducedBoundarySize=2, the ALL_stridedCusPerCtu points ot the start of the current CU size and all previous sizes have reducedboundarySize=4
+                printf("%d,", unified_redL[ctuIdx + ALL_stridedCusPerCtu[cuSizeIdx]*LARGEST_RED_BOUNDARY + cu*boundarySize + b]);
             }
             printf("\n");
         }
+        printf("\n");
     }
 }
 

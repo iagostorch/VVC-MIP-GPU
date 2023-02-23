@@ -4,6 +4,7 @@
 #define REDUCED_PRED_SIZE_Id1 4
 #define REDUCED_PRED_SIZE_Id0 4
 
+#define BOUNDARY_SIZE_Id12 4
 #define BOUNDARY_SIZE_Id2 4
 #define BOUNDARY_SIZE_Id1 4
 #define BOUNDARY_SIZE_Id0 2
@@ -14,6 +15,8 @@
 
 #define PREDICTION_MODES_ID2 6
 #define PREDICTION_MODES_ID1 8
+#define PREDICTION_MODES_ID0 16
+
 #define TEST_TRANSPOSED_MODES 1
 
 __constant unsigned char MIP_SHIFT_MATRIX = 6;
@@ -419,12 +422,14 @@ const unsigned short NA_stridedCusPerCtu[20] = {
 //
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-#define ALL_MAX_CUS_PER_CTU 256
+#define ALL_MAX_CUS_PER_CTU 1024
 
 #define ALL_MAX_CUS_PER_CTU_SizeId2 128
 #define ALL_MAX_CUS_PER_CTU_SizeId1 256
 
-#define ALL_TOTAL_CUS_PER_CTU 4356 // Sum of cusPerCtu for all CUs with all alignments
+#define ALL_TOTAL_CUS_SizeId12_PER_CTU 4356 // Sum of cusPerCtu for all CUs SizeId={1,2} with all alignments
+#define ALL_TOTAL_CUS_SizeId0_PER_CTU 1024 // Sum of cusPerCtu for all CUs SizeId={0} with all alignments
+#define ALL_TOTAL_CUS_SizeId012_PER_CTU 5380
 
 enum ALL_CU_SIZE {
     // ALIGNED
@@ -482,8 +487,13 @@ enum ALL_CU_SIZE {
     ALL_NA_8x4_G1   = 44,
     ALL_NA_4x8_G1   = 45,
     NUM_CU_SIZES_SizeId1 = 18,
+
+    // SizeId=0
+    FIRST_SizeId0   = 46,
+    ALL_AL_4x4      = 46,
+    NUM_CU_SIZES_SizeId0 = 1,
     
-    ALL_NUM_CU_SIZES = 46 // TODO: It will be necessary to rethink this enum because it won't be possible to use a single data structure for all SIZE IDs. TOTAL_CUS*boundarySize will cause problems with different boundary sizes
+    ALL_NUM_CU_SIZES = 47 
   };
 
      
@@ -548,7 +558,7 @@ const char ALL_sizeIds[46] = {
 #define MAX_CU_ROWS_PER_CTU 32
 #define MAX_CU_COLUMNS_PER_CTU 32
 
-const char ALL_numPredModes[46]  = {
+const char ALL_numPredModes[47]  = {
     6,
     6,
     6,
@@ -595,10 +605,12 @@ const char ALL_numPredModes[46]  = {
     8,
     8,
     8,
-    8
+    8,
+    // SizeId=0
+    16
 };
 
-const char ALL_reducedBoundarySizes[46] = {
+const char ALL_reducedBoundarySizes[47] = {
     4,
     4,
     4,
@@ -645,61 +657,65 @@ const char ALL_reducedBoundarySizes[46] = {
     4,
     4,
     4,
+    4,
+    // SizeId=0
+    2
+};
+
+const char ALL_reducedPredSizes[47] = {
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    // SizeId=1
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    // SizeId=0
     4
 };
 
-const char ALL_reducedPredSizes[46] = {
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    8,
-    // SizeId=1
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4
-};
 
-
-const unsigned char ALL_widths[46] = {
+const unsigned char ALL_widths[47] = {
                                       // ALIGNED
                                       64,  // 64x64
                                       32,  // 32x32
@@ -752,10 +768,13 @@ const unsigned char ALL_widths[46] = {
                                       8   ,// 8x8_G4
                                       8   ,// 8x8_G5
                                       8   ,// 8x4_G1
-                                      4    // 4x8_G2
+                                      4   ,// 4x8_G2
+
+                                      // SizeId=0
+                                      4   // 4x4
 };
 
-const unsigned char ALL_heights[46] = {
+const unsigned char ALL_heights[47] = {
                                     // ALIGNED
                                     64,  // 64x64
                                     32,  // 32x32
@@ -808,10 +827,13 @@ const unsigned char ALL_heights[46] = {
                                     8   ,// 8x8_G4
                                     8   ,// 8x8_G5
                                     4   ,// 8x4_G1
-                                    8    // 4x8_G2                               
+                                    8   ,// 4x8_G2                               
+
+                                    // SizeId00
+                                    4   // 4x4
 };
 
-const unsigned short ALL_cusPerCtu[46] = {
+const unsigned short ALL_cusPerCtu[47] = {
                                     // ALIGNED
                                     4,   // 64x64
                                     16,  // 32x32
@@ -864,12 +886,15 @@ const unsigned short ALL_cusPerCtu[46] = {
                                     32        ,// 8x8_G4
                                     64        ,// 8x8_G5 // UNALIGNED
                                     256       ,// 8x4_G1
-                                    256        // 4x8_G2   
+                                    256       ,// 4x8_G2   
+
+                                    // SizeId=0
+                                    1024       // 4x4
 
 };
 
 // Used to access the boundaries of a specific CU size inside the unified buffer
-const unsigned int ALL_stridedCompleteTopBoundaries[47] = {
+const unsigned int ALL_stridedCompleteTopBoundaries[48] = {
     // width * nCUs
     // ALIGNED
     0,                                                                        // 64x64
@@ -930,13 +955,16 @@ const unsigned int ALL_stridedCompleteTopBoundaries[47] = {
     17920 + 32*128 + 4*128 + 16*256 + 4*256 + 8*256 + 8*256 + 8*256 + 4*256 + 4*256 + 16*128 + 4*128 + 8*128 + 8*32 + 8*128 + 8*32 + 8*64  ,// 8x4_G1
     17920 + 32*128 + 4*128 + 16*256 + 4*256 + 8*256 + 8*256 + 8*256 + 4*256 + 4*256 + 16*128 + 4*128 + 8*128 + 8*32 + 8*128 + 8*32 + 8*64 + 8*256,  // 4x8_G2               
 
+    // SizeId=0
+    17920 + 32*128 + 4*128 + 16*256 + 4*256 + 8*256 + 8*256 + 8*256 + 4*256 + 4*256 + 16*128 + 4*128 + 8*128 + 8*32 + 8*128 + 8*32 + 8*64 + 8*256 + 4*256,  // 4x4
 
-    17920 + 32*128 + 4*128 + 16*256 + 4*256 + 8*256 + 8*256 + 8*256 + 4*256 + 4*256 + 16*128 + 4*128 + 8*128 + 8*32 + 8*128 + 8*32 + 8*64 + 8*256 + 4*256     // ALL_TOTAL_TOP_BOUNDARIES_PER_CTU = 44544
+
+    17920 + 32*128 + 4*128 + 16*256 + 4*256 + 8*256 + 8*256 + 8*256 + 4*256 + 4*256 + 16*128 + 4*128 + 8*128 + 8*32 + 8*128 + 8*32 + 8*64 + 8*256 + 4*256 + 4*1024    // ALL_TOTAL_TOP_BOUNDARIES_PER_CTU = 48640
 
 
 };
 
-const unsigned int ALL_stridedCompleteLeftBoundaries[47] = {
+const unsigned int ALL_stridedCompleteLeftBoundaries[48] = {
     // height * nCUs
     // ALIGNED
     0,                                                                        // 64x64  
@@ -998,11 +1026,14 @@ const unsigned int ALL_stridedCompleteLeftBoundaries[47] = {
     17920 + 4*128 + 32*128 + 4*256 + 16*256 + 8*256 + 4*256 + 4*256 + 8*256 + 8*256 + 4*128 + 16*128 + 8*128 + 8*32 + 8*128 + 8*32 + 8*64  ,// 8x4_G1
     17920 + 4*128 + 32*128 + 4*256 + 16*256 + 8*256 + 4*256 + 4*256 + 8*256 + 8*256 + 4*128 + 16*128 + 8*128 + 8*32 + 8*128 + 8*32 + 8*64 + 4*256,  // 4x8_G2               
 
+    // SizeId=0
+    17920 + 4*128 + 32*128 + 4*256 + 16*256 + 8*256 + 4*256 + 4*256 + 8*256 + 8*256 + 4*128 + 16*128 + 8*128 + 8*32 + 8*128 + 8*32 + 8*64 + 4*256 + 8*256,  // 4x4
 
-    17920 + 4*128 + 32*128 + 4*256 + 16*256 + 8*256 + 4*256 + 4*256 + 8*256 + 8*256 + 4*128 + 16*128 + 8*128 + 8*32 + 8*128 + 8*32 + 8*64 + 4*256 + 8*256     // ALL_TOTAL_TOP_BOUNDARIES_PER_CTU = 44544
+
+    17920 + 4*128 + 32*128 + 4*256 + 16*256 + 8*256 + 4*256 + 4*256 + 8*256 + 8*256 + 4*128 + 16*128 + 8*128 + 8*32 + 8*128 + 8*32 + 8*64 + 4*256 + 8*256 + 4*1024    // ALL_TOTAL_TOP_BOUNDARIES_PER_CTU = 48640
 };
 
-const unsigned char ALL_cuColumnsPerCtu[46] = {
+const unsigned char ALL_cuColumnsPerCtu[47] = {
                                     // ALIGNED
                                     2   ,// 64x64
                                     4   ,// 32x32 
@@ -1054,11 +1085,14 @@ const unsigned char ALL_cuColumnsPerCtu[46] = {
                                     8        ,// 8x8_G4
                                     8        ,// 8x8_G5 // UNALIGNED
                                     8       ,// 8x4_G1
-                                    32        // 4x8_G2  
+                                    32       ,// 4x8_G2  
+
+                                    // SizeId=0
+                                    32        // 4x4
 
 };
 
-const unsigned char ALL_cuRowsPerCtu[46] = {
+const unsigned char ALL_cuRowsPerCtu[47] = {
                                     // ALIGNED
                                     2  ,// 64x64
                                     4  ,// 32x32 
@@ -1112,7 +1146,10 @@ const unsigned char ALL_cuRowsPerCtu[46] = {
                                     4        ,// 8x8_G4
                                     8        ,// 8x8_G5 // UNALIGNED
                                     32       ,// 8x4_G1
-                                    8        // 4x8_G2  
+                                    8        ,// 4x8_G2  
+
+                                    // SizeId=0
+                                    32        // 4x4
 };
 
 const unsigned char ALL_X_POS[46][256] = 
@@ -1235,7 +1272,7 @@ const unsigned char ALL_Y_POS[46][256] =
 };
 
 // This is used as a stride when we must access information from multiple CU sizes in the same buffer
-const unsigned short ALL_stridedCusPerCtu[47] = { 
+const unsigned short ALL_stridedCusPerCtu[48] = { 
     // ALIGNED
     0,                          // 64x64
     0+4,                        // 32x32
@@ -1299,14 +1336,18 @@ const unsigned short ALL_stridedCusPerCtu[47] = {
     1156 + 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32            ,// 8x8_G5 // UNALIGNED
     1156 + 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 + 64       ,// 8x4_G1
     1156 + 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 + 64 + 256,// 4x8_G2  
-    1156 + 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 + 64 + 256 + 256        // ALL TOTAL_CUS_PER_CTU = 4356
+    
+    // SizeId=0
+    1156 + 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 + 64 + 256 + 256,        // 4x4
+    
+    1156 + 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 + 64 + 256 + 256 + 1024
 
    };
 
 
 // This is used as a stride when we must access the prediction signal of multiple CUs
 // Since CUs of different size may have 8x8 or 4x4 samples it is not possible to compute the stride manually
-const unsigned int ALL_stridedPredictionsPerCtu[47] = { 
+const unsigned int ALL_stridedPredictionsPerCtu[48] = { 
     // predModes*numSamples* ( numCus )
 
     // SizeID=2 At this size all preditions have 8x8 samples
@@ -1373,13 +1414,16 @@ const unsigned int ALL_stridedPredictionsPerCtu[47] = {
     12*64*1156 + 16*16*( 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 )            ,// 8x8_G5 // UNALIGNED
     12*64*1156 + 16*16*( 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 + 64 )       ,// 8x4_G1
     12*64*1156 + 16*16*( 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 + 64 + 256 ),// 4x8_G2  
-    12*64*1156 + 16*16*( 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 + 64 + 256 + 256 )        // ALL TOTAL_CUS_PER_CTU = 4356
 
+    // SizeId=0
+    12*64*1156 + 16*16*3200,                                                                                                // 4x4 
+
+    12*64*1156 + 16*16*3200 + 32*16*1024
    };
 
 // This is used as a stride when we must access the distortion for multiple CUs
 // Since CUs of different size may have 12 or 16 modes it is not possible to compute the stride manually
-const unsigned int ALL_stridedDistortionsPerCtu[47] = { 
+const unsigned int ALL_stridedDistortionsPerCtu[48] = { 
     // predModes*numSamples* ( numCus )
 
     // SizeID=2 At this size all CUs have 12 modes
@@ -1446,6 +1490,10 @@ const unsigned int ALL_stridedDistortionsPerCtu[47] = {
     12*1156 + 16*( 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 )            ,// 8x8_G5 // UNALIGNED
     12*1156 + 16*( 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 + 64 )       ,// 8x4_G1
     12*1156 + 16*( 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 + 64 + 256 ),// 4x8_G2  
-    12*1156 + 16*( 128 + 128 + 256 + 256 + 256 + 256 + 256 + 256 + 256 + 128 + 128 + 128 + 32 + 128 + 32 + 64 + 256 + 256 )        
+    
+    // SizeId=0
+    12*1156 + 16*3200,                                                                                                 // 4x4        
+
+    12*1156 + 16*3200 + 32*1024   
 
    };

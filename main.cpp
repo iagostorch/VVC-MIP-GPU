@@ -258,9 +258,9 @@ int main(int argc, char *argv[])
 
     // Used for all sizeId=2 CU sizes together
     cl_mem redT_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                              nCTUs * ALL_TOTAL_CUS_PER_CTU * 4 * sizeof(short), NULL, &error_1);
+                                              nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(short), NULL, &error_1);    
     cl_mem redL_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                              nCTUs * ALL_TOTAL_CUS_PER_CTU * 4 * sizeof(short), NULL, &error_2);    
+                                              nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(short), NULL, &error_2);    
     
     
     cl_mem refT_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
@@ -284,6 +284,11 @@ int main(int argc, char *argv[])
                                                nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_4);
 
     error = error || error_1 || error_2 || error_3 || error_4;
+
+    cl_mem return_minSadHad_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                               nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_1);
+
+    error = error || error_1;
 
     probe_error(error, (char*)"Error creating memory buffers\n");
 
@@ -362,9 +367,9 @@ int main(int argc, char *argv[])
     string exportFileName;
 
     int enableTerminalReport = 1;
-    int reportReducedBoundaries = 0;
-    int reportCompleteBoundaries = 0;
-    int reportReducedPrediction = 0;
+    int reportReducedBoundaries = 1;
+    int reportCompleteBoundaries = 1;
+    int reportReducedPrediction = 1;
     int reportDistortion = 1;
     int reportDistortionOnlyTarget = 1;
 
@@ -378,7 +383,7 @@ int main(int argc, char *argv[])
     // These dynamic arrays retrieve the information from the kernel to the host
     // Predicted signal and distortion
     short *return_reducedPredictionSignal;
-    long *return_SATD, *return_SAD;
+    long *return_SATD, *return_SAD, *return_minSadHad;
     short *return_unified_redT, *return_unified_redL;
     short *return_unified_refT, *return_unified_refL;
 
@@ -398,9 +403,10 @@ int main(int argc, char *argv[])
     return_reducedPredictionSignal = (short*)malloc(sizeof(short) * nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES]); // Each predicted CU has 8x8 samples
     return_SATD = (long*) malloc(sizeof(long) * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);
     return_SAD = (long*) malloc(sizeof(long) * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);
+    return_minSadHad = (long*) malloc(sizeof(long) * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);   
     // Unified boundaries
-    return_unified_redT = (short*) malloc(sizeof(short) * nCTUs * ALL_TOTAL_CUS_PER_CTU * 4);
-    return_unified_redL = (short*) malloc(sizeof(short) * nCTUs * ALL_TOTAL_CUS_PER_CTU * 4);
+    return_unified_redT = (short*) malloc(sizeof(short) * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0));
+    return_unified_redL = (short*) malloc(sizeof(short) * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0));
     return_unified_refT = (short*) malloc(sizeof(short) * nCTUs * ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES]);
     return_unified_refL = (short*) malloc(sizeof(short) * nCTUs * ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES]);
 
@@ -486,6 +492,7 @@ int main(int argc, char *argv[])
             reportCompleteBoundariesTargetCtu_ALL(return_unified_refT, return_unified_refL, targetCTU, frameWidth, frameHeight);
     }
     
+
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //
@@ -592,6 +599,7 @@ int main(int argc, char *argv[])
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redL_all_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refT_all_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
@@ -650,6 +658,7 @@ int main(int argc, char *argv[])
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redL_all_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refT_all_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
@@ -676,22 +685,82 @@ int main(int argc, char *argv[])
     execTime_upsampleDistortion += nanoSeconds;
 
 
-    readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD);
+    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+    //
+    //          PROCEED TO CUs OF SizeID=0
+
+    // Create kernel
+    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId0_ALL", &error);
+    probe_error(error, (char *)"Error creating upsampleDistortionSizeId0 kernel\n");
+    printf("Performing upsampleDistortionSizeId0 kernel...\n");
+
+    // Query for work groups sizes information
+    error = clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
+    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
+    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
+    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
+
+    probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
+    cout << "-- Preferred WG size multiple " << preferred_size << endl;
+    cout << "-- Maximum WG size " << maximum_size << endl;
+
+    // Set the arguments of the upsampleDistortionSizeId2 kernel
+    error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
+    // Reference samples and final distortion
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_SAD_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&return_SATD_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+    // Unified boundariers
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&redT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+
+    probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
+
+    // Execute the OpenCL kernel on the list
+    // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
+    nWG = nCTUs*NUM_CU_SIZES_SizeId0*8; // Due to the large number of CUs 4x4 per CTU (1024), each WG only processes 128 CUs (12.5%)
+    global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
+    local_item_size = itemsPerWG;
+
+    error = clEnqueueNDRangeKernel(command_queue, kernel_upsampleDistortion, 1, NULL,
+                                   &global_item_size, &local_item_size, 0, NULL, &event);
+    probe_error(error, (char *)"Error enqueuing kernel\n");
+
+    error = clWaitForEvents(1, &event);
+    probe_error(error, (char *)"Error waiting for events\n");
+
+    error = clFinish(command_queue);
+    probe_error(error, (char *)"Error finishing\n");
+
+    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+    nanoSeconds = time_end - time_start;
+
+    execTime_upsampleDistortion += nanoSeconds;
+
+    readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, return_minSadHad);
 
     // REPORT DISTORTION VALUES TO TERMINAL
     if(enableTerminalReport && reportDistortion){
         if(reportDistortionOnlyTarget)
-            reportTargetDistortionValues_ALL(return_SAD, return_SATD, nCTUs, targetCTU);
+            reportTargetDistortionValues_ALL(return_SAD, return_SATD, return_minSadHad, nCTUs, targetCTU);
         else
-            reportAllDistortionValues_ALL(return_SAD, return_SATD, nCTUs);
+            reportAllDistortionValues_ALL(return_SAD, return_SATD, return_minSadHad, nCTUs);
     }
+
+    
 
     // REPORT DISTORTION VALUES TO FILE
     if(reportDistortionToFile){
         if(reportDistortionOnlyTarget)
-            reportTargetDistortionValues_File(return_SAD, return_SATD, targetCTU, frameWidth, outputFilePreffix);
+            reportTargetDistortionValues_File(return_SAD, return_SATD, return_minSadHad, targetCTU, frameWidth, outputFilePreffix);
         else
-            exportAllDistortionValues_File(return_SAD, return_SATD, nCTUs, frameWidth, outputFilePreffix);
+            exportAllDistortionValues_File(return_SAD, return_SATD, return_minSadHad, nCTUs, frameWidth, outputFilePreffix);
     }
 
 
