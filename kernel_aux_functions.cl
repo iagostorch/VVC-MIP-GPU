@@ -1,8 +1,8 @@
 #include "constants.cl"
 
-int targetGid = -1;
-int targetLid = 0;
-int targetWg = 0;
+__constant int targetGid = -1;
+__constant int targetLid = 0;
+__constant  int targetWg = 0;
 
 // Based on MatrixIntraPrediction::predictionUpsampling1D
 void upsamplePrediction_SizeId2(const short localPredBuffer[8*8], const int upsamplingHorizontal, const int upsamplingVertical, short *predictedBlock, const short refT[64], const short refL[64]){

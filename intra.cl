@@ -87,7 +87,10 @@ __kernel void initBoundaries(__global short *referenceFrame, const int frameWidt
  
         // TODO: This only works if the number of workitems is equal to 128
         // Depending if there are all, some or no references available, we fetch correct samples or pad them
-        if((ctuY+cuY)>0){ // Most general case, all references available
+        if((ctuY+cuY+cuHeight)>frameHeight){ // When sample lies outside the frame we do nothing
+            continue;
+        }
+        else if((ctuY+cuY)>0){ // Most general case, all references available
             refT[lid] = referenceFrame[startCurrRow + cuX + lid%cuWidth]; // At this point, one row of samples is in the shared array. We must reduce it to obtain the redT for each CU
         }
         else if((ctuY+cuY)==0 && (ctuX+cuX)==0){ // CU is in the top-left corner of frame, no reference is available. Fill with predefined DC value
@@ -215,7 +218,10 @@ __kernel void initBoundaries(__global short *referenceFrame, const int frameWidt
         // TODO: This is VERY INEFFICIENT since the global memory accesses are completely strided
         // TODO: If we store the referenceFrame in original and transposed manners (i.e., keep the same data in two different global memory objects, one transposed and other not)
         //       It is possible to coalesce the memory accesses to refL as well. TOP boundaries accessed from ORIGINAL FRAME and LEFT boundaries accessed from TRANSPOSED FRAME
-        if((ctuX+cuX)>0){ // Most general case, all neighboring samples are available
+        if((ctuY+cuY+cuHeight)>frameHeight){ // When sample lies outside the frame we do nothing
+            continue;
+        }
+        else if((ctuX+cuX)>0){ // Most general case, all neighboring samples are available
             refL[lid] = referenceFrame[startCurrCol + (cuY+lid%cuHeight)*frameWidth]; // At this point, one row of samples is in the shared array. We must reduce it to obtain the redL for each CU
         }
         else if((ctuY+cuY)==0 && (ctuX+cuX)==0){ // CU is in the top-left corner of frame, no reference is available. Fill with predefined DC value
@@ -427,7 +433,7 @@ __kernel void MIP_ReducedPred(__global short *reducedPrediction, const int frame
             if(reducedPredSize==8){ // SizeId==2
                 vectorizedCoeffs = vload8(0, &mipMatrix16x16[mode][sampleInCu][0]);
                 // Shift the coefficients to the right by 1 element, so that coeff 1 is in position [1]. Zero first coefficient beause it does not exist
-                uint8 mask = (uint8)(0,0,1,2,3,4,5,6); 
+                uchar8 mask = (uchar8)(0,0,1,2,3,4,5,6); 
                 vectorizedCoeffs = shuffle(vectorizedCoeffs, mask); 
                 vectorizedCoeffs.s0 = 0;
             }
@@ -566,6 +572,8 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
     __local int localSadEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId2][PREDICTION_MODES_ID2*2];
     __local int localSatdEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId2][PREDICTION_MODES_ID2*2];
 
+    __local int refT[2*64], refL[2*64]; // Complete boundaries of the two CUs being processed
+
     // Each CU will be upsampled using 128 workitems, irrespective of the CU size
     // We will process 2 CUs simultaneously when wgSize=256
     // CUs with more than 128 samples will require multiple passes (i.e., CUs larger than 8x16 and 16x8)
@@ -592,7 +600,8 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
             xPosInFrame = ctuX + xPosInCtu;
             yPosInFrame = ctuY + yPosInCtu;
             
-            localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] = originalSamples[yPosInFrame*frameWidth + xPosInFrame];
+            if(yPosInFrame<frameHeight) // When sample lies outside the frame we do nothing
+                localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] = originalSamples[yPosInFrame*frameWidth + xPosInFrame];
         }
         
 
@@ -601,7 +610,7 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
         //      FETCH THE BOUNDARIES REQUIRED FOR UPSAMPLING
 
         // TODO: We only need the reduced left boundary
-        __local int refT[2*64], refL[2*64]; // Complete boundaries of the two CUs being processed
+        
         int topBoundariesIdx, leftBoundariesIdx;
 
         // Points to the current CTU boundaries
@@ -898,6 +907,9 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
                 }    
             }
 
+            // Wait until all positions of localSATD are updated before offloading to global
+            barrier(CLK_LOCAL_MEM_FENCE);
+
             // Save SAD and SATD of current CU/mode in a __local buffer. We only access global memory when all SAD values are computed or all CUs
             if(lid==0){
                 localSadEntireCtu[firstCu][mode] = localSAD[0];
@@ -994,6 +1006,8 @@ __kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const
     __local int localSadEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId1][PREDICTION_MODES_ID1*2];
     __local int localSatdEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId1][PREDICTION_MODES_ID1*2];
 
+    __local int refT[8*32], refL[8*32]; // Complete boundaries of the 8 CUs being processed
+
     // Each CU will be upsampled using 32 workitems, irrespective of the CU size
     // We will process 8 CUs simultaneously when wgSize=256
     // CUs with more than 32 samples will require multiple passes (i.e., CUs larger than 8x16 and 16x8)
@@ -1020,7 +1034,8 @@ __kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const
             xPosInFrame = ctuX + xPosInCtu;
             yPosInFrame = ctuY + yPosInCtu;
             
-            localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] = originalSamples[yPosInFrame*frameWidth + xPosInFrame];
+            if(yPosInFrame<frameHeight) // When sample lies outside the frame we do nothing
+                localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] = originalSamples[yPosInFrame*frameWidth + xPosInFrame];
         }
         
 
@@ -1029,7 +1044,7 @@ __kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const
         //      FETCH THE BOUNDARIES REQUIRED FOR UPSAMPLING
 
         // TODO: We only need the reduced left boundary
-        __local int refT[8*32], refL[8*32]; // Complete boundaries of the 8 CUs being processed
+        
         int topBoundariesIdx, leftBoundariesIdx;
 
         // Points to the current CTU boundaries
@@ -1326,7 +1341,8 @@ __kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const
                 }    
             }
 
-            //*/
+            // Wait until all positions of localSATD are updated before offloading to global
+            barrier(CLK_LOCAL_MEM_FENCE);
 
             // Save SAD and SATD of current CU/mode in a __local buffer. We only access global memory when all SAD values are computed or all CUs
             if(lid==0){
@@ -1463,7 +1479,8 @@ __kernel void upsampleDistortionSizeId0(__global short *reducedPrediction, const
             xPosInFrame = ctuX + xPosInCtu;
             yPosInFrame = ctuY + yPosInCtu;
             
-            localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] = originalSamples[yPosInFrame*frameWidth + xPosInFrame];
+            if(yPosInFrame<frameHeight) // When sample lies outside the frame we do nothing
+                localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] = originalSamples[yPosInFrame*frameWidth + xPosInFrame];
 
             /*
             barrier(CLK_LOCAL_MEM_FENCE);
@@ -1654,7 +1671,9 @@ __kernel void upsampleDistortionSizeId0(__global short *reducedPrediction, const
                     stride = stride/2;
                 }    
             }
-
+            
+            // Wait until all positions of localSATD are updated before offloading to global
+            barrier(CLK_LOCAL_MEM_FENCE);
 
             // Save SAD and SATD of current CU/mode in a __local buffer. We only access global memory when all SAD values are computed or all CUs
             if(lid==0){

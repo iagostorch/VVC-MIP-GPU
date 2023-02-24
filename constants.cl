@@ -35,7 +35,7 @@ enum CU_SIZE {
     NUM_CU_SIZES = 9
 };
 
-const unsigned char widths[9] = {
+__constant unsigned char widths[9] = {
                                         64,  // 64x64
                                         32,  // 32x32
                                         32,  // 32x16
@@ -52,7 +52,7 @@ const unsigned char widths[9] = {
                                         8,   // 8x16
 };
 
-const unsigned char heights[9] = {
+__constant unsigned char heights[9] = {
                                         64,  // 64x64
                                         32,  // 32x32
                                         16,  // 32x16
@@ -69,7 +69,7 @@ const unsigned char heights[9] = {
                                         16   // 8x16
 };
 
-const unsigned char cusPerCtu[9] = {
+__constant unsigned char cusPerCtu[9] = {
     4,   // 64x64
     16,  // 32x32
     32,  // 32x16
@@ -85,7 +85,7 @@ const unsigned char cusPerCtu[9] = {
 };
 
 // This is used as a stride when we must access information from multiple CU sizes in the same buffer
-const unsigned short stridedCusPerCtu[10] = { 
+__constant unsigned short stridedCusPerCtu[10] = { 
     0,                          // 64x64
     0+4,                        // 32x32
     0+4+16,                     // 32x16
@@ -104,7 +104,7 @@ const unsigned short stridedCusPerCtu[10] = {
    };
 
 // Used to access the boundaries of a specific CU size inside the unified buffer
-const unsigned short stridedCompleteTopBoundaries[10] = {
+__constant unsigned short stridedCompleteTopBoundaries[10] = {
   0,                                                                        // 64x64
   0 + 4*64,                                                                 // 32x32
   0 + 4*64 + 16*32,                                                         // 32x16
@@ -121,7 +121,7 @@ const unsigned short stridedCompleteTopBoundaries[10] = {
   0 + 4*64 + 16*32 + 32*32 + 32*16 + 64*32 + 64*8 + 64*16 + 128*16 + 128*8  // TOTAL_TOP_BOUNDARIES_PER_CTU
 };
 
-const unsigned short stridedCompleteLeftBoundaries[10] = {
+__constant unsigned short stridedCompleteLeftBoundaries[10] = {
   0,                                                                        // 64x64
   0 + 4*64,                                                                 // 32x32
   0 + 4*64 + 16*32,                                                         // 32x16
@@ -176,7 +176,7 @@ enum NA_CU_SIZE {
     NA_NUM_CU_SIZES = 19
 };
 
-const unsigned char NA_widths[19] = {
+__constant unsigned char NA_widths[19] = {
                                     32  ,// 32x16
                                     16  ,// 16x32
                                     32  ,// 32x8_G1
@@ -198,7 +198,7 @@ const unsigned char NA_widths[19] = {
                                     8   // 8x16_G5 	UNALIGNED
 };
 
-const unsigned char NA_heights[19] = {
+__constant unsigned char NA_heights[19] = {
                                     16  ,// 32x16
                                     32  ,// 16x32
                                     8   ,// 32x8_G1
@@ -220,7 +220,7 @@ const unsigned char NA_heights[19] = {
                                     16  // 8x16_G5 	UNALIGNED
 };
 
-const unsigned char NA_cusPerCtu[19] = {
+__constant unsigned char NA_cusPerCtu[19] = {
                                     16        ,// 32x16
                                     16        ,// 16x32
                                     32        ,// 32x8_G1
@@ -242,7 +242,7 @@ const unsigned char NA_cusPerCtu[19] = {
                                     32        ,// 8x16_G5 	UNALIGNED
 };
 
-const unsigned char NA_cuColumnsPerCtu[19] = {
+__constant unsigned char NA_cuColumnsPerCtu[19] = {
                                     4  ,// 32x16
                                     4  ,// 16x32
                                     4  ,// 32x8_G1
@@ -264,7 +264,7 @@ const unsigned char NA_cuColumnsPerCtu[19] = {
                                     8  // 8x16_G5 	UNALIGNED
 };
 
-const unsigned char NA_cuRowsPerCtu[19] = {
+__constant unsigned char NA_cuRowsPerCtu[19] = {
                                     4  ,// 32x16
                                     4  ,// 16x32
                                     8  ,// 32x8_G1
@@ -287,7 +287,7 @@ const unsigned char NA_cuRowsPerCtu[19] = {
 };
 
 // Used to access the boundaries of a specific CU size inside the unified buffer
-const unsigned short NA_stridedCompleteTopBoundaries[20] = {
+__constant unsigned short NA_stridedCompleteTopBoundaries[20] = {
     // width * nCUs
     0                                                                                                                                                   ,// 32x16
     0 + 32*16                                                                                                                                           ,// 16x32
@@ -312,7 +312,7 @@ const unsigned short NA_stridedCompleteTopBoundaries[20] = {
     0 + 32*16 + 16*16 + 32*32 + 32*16 + 8*32 + 8*16 + 16*32 + 16*32 + 16*16 + 16*64 + 16*64 + 16*32 + 16*32 + 16*16 + 8*64 + 8*64 + 8*32 + 8*16 + 8*32  // NA_TOTAL_TOP_BOUNDARIES_PER_CTU
 };
 
-const unsigned short NA_stridedCompleteLeftBoundaries[20] = {
+__constant unsigned short NA_stridedCompleteLeftBoundaries[20] = {
   
     // height * nCUs
     0                                                                                                                                                   ,// 32x16
@@ -387,7 +387,7 @@ __constant unsigned char NA_ALL_Y_POS[19][64] =
 };
 
 // This is used as a stride when we must access information from multiple CU sizes in the same buffer
-const unsigned short NA_stridedCusPerCtu[20] = { 
+__constant unsigned short NA_stridedCusPerCtu[20] = { 
 
     0                                                           ,// 32x16
     0+16                                                        ,// 16x32
@@ -503,7 +503,7 @@ enum SizeIds {
   SizeId_2            = 2,
 };
 
-const char ALL_sizeIds[46] = {
+__constant char ALL_sizeIds[46] = {
     2,
     2,
     2,
@@ -558,7 +558,7 @@ const char ALL_sizeIds[46] = {
 #define MAX_CU_ROWS_PER_CTU 32
 #define MAX_CU_COLUMNS_PER_CTU 32
 
-const char ALL_numPredModes[47]  = {
+__constant char ALL_numPredModes[47]  = {
     6,
     6,
     6,
@@ -610,7 +610,7 @@ const char ALL_numPredModes[47]  = {
     16
 };
 
-const char ALL_reducedBoundarySizes[47] = {
+__constant char ALL_reducedBoundarySizes[47] = {
     4,
     4,
     4,
@@ -662,7 +662,7 @@ const char ALL_reducedBoundarySizes[47] = {
     2
 };
 
-const char ALL_reducedPredSizes[47] = {
+__constant char ALL_reducedPredSizes[47] = {
     8,
     8,
     8,
@@ -715,7 +715,7 @@ const char ALL_reducedPredSizes[47] = {
 };
 
 
-const unsigned char ALL_widths[47] = {
+__constant unsigned char ALL_widths[47] = {
                                       // ALIGNED
                                       64,  // 64x64
                                       32,  // 32x32
@@ -774,7 +774,7 @@ const unsigned char ALL_widths[47] = {
                                       4   // 4x4
 };
 
-const unsigned char ALL_heights[47] = {
+__constant unsigned char ALL_heights[47] = {
                                     // ALIGNED
                                     64,  // 64x64
                                     32,  // 32x32
@@ -833,7 +833,7 @@ const unsigned char ALL_heights[47] = {
                                     4   // 4x4
 };
 
-const unsigned short ALL_cusPerCtu[47] = {
+__constant unsigned short ALL_cusPerCtu[47] = {
                                     // ALIGNED
                                     4,   // 64x64
                                     16,  // 32x32
@@ -894,7 +894,7 @@ const unsigned short ALL_cusPerCtu[47] = {
 };
 
 // Used to access the boundaries of a specific CU size inside the unified buffer
-const unsigned int ALL_stridedCompleteTopBoundaries[48] = {
+__constant unsigned int ALL_stridedCompleteTopBoundaries[48] = {
     // width * nCUs
     // ALIGNED
     0,                                                                        // 64x64
@@ -964,7 +964,7 @@ const unsigned int ALL_stridedCompleteTopBoundaries[48] = {
 
 };
 
-const unsigned int ALL_stridedCompleteLeftBoundaries[48] = {
+__constant unsigned int ALL_stridedCompleteLeftBoundaries[48] = {
     // height * nCUs
     // ALIGNED
     0,                                                                        // 64x64  
@@ -1033,7 +1033,7 @@ const unsigned int ALL_stridedCompleteLeftBoundaries[48] = {
     17920 + 4*128 + 32*128 + 4*256 + 16*256 + 8*256 + 4*256 + 4*256 + 8*256 + 8*256 + 4*128 + 16*128 + 8*128 + 8*32 + 8*128 + 8*32 + 8*64 + 4*256 + 8*256 + 4*1024    // ALL_TOTAL_TOP_BOUNDARIES_PER_CTU = 48640
 };
 
-const unsigned char ALL_cuColumnsPerCtu[47] = {
+__constant unsigned char ALL_cuColumnsPerCtu[47] = {
                                     // ALIGNED
                                     2   ,// 64x64
                                     4   ,// 32x32 
@@ -1092,7 +1092,7 @@ const unsigned char ALL_cuColumnsPerCtu[47] = {
 
 };
 
-const unsigned char ALL_cuRowsPerCtu[47] = {
+__constant unsigned char ALL_cuRowsPerCtu[47] = {
                                     // ALIGNED
                                     2  ,// 64x64
                                     4  ,// 32x32 
@@ -1152,7 +1152,7 @@ const unsigned char ALL_cuRowsPerCtu[47] = {
                                     32        // 4x4
 };
 
-const unsigned char ALL_X_POS[46][256] = 
+__constant unsigned char ALL_X_POS[46][256] = 
 {
   // ALIGNED
   /* 64x64 */     {0, 64, 0, 64},
@@ -1212,7 +1212,7 @@ const unsigned char ALL_X_POS[46][256] =
 
 };
 
-const unsigned char ALL_Y_POS[46][256] = 
+__constant unsigned char ALL_Y_POS[46][256] = 
 {
   // ALIGNED
   /* 64x64 */     {0, 0, 64, 64},
@@ -1272,7 +1272,7 @@ const unsigned char ALL_Y_POS[46][256] =
 };
 
 // This is used as a stride when we must access information from multiple CU sizes in the same buffer
-const unsigned short ALL_stridedCusPerCtu[48] = { 
+__constant unsigned short ALL_stridedCusPerCtu[48] = { 
     // ALIGNED
     0,                          // 64x64
     0+4,                        // 32x32
@@ -1347,7 +1347,7 @@ const unsigned short ALL_stridedCusPerCtu[48] = {
 
 // This is used as a stride when we must access the prediction signal of multiple CUs
 // Since CUs of different size may have 8x8 or 4x4 samples it is not possible to compute the stride manually
-const unsigned int ALL_stridedPredictionsPerCtu[48] = { 
+__constant unsigned int ALL_stridedPredictionsPerCtu[48] = { 
     // predModes*numSamples* ( numCus )
 
     // SizeID=2 At this size all preditions have 8x8 samples
@@ -1423,7 +1423,7 @@ const unsigned int ALL_stridedPredictionsPerCtu[48] = {
 
 // This is used as a stride when we must access the distortion for multiple CUs
 // Since CUs of different size may have 12 or 16 modes it is not possible to compute the stride manually
-const unsigned int ALL_stridedDistortionsPerCtu[48] = { 
+__constant unsigned int ALL_stridedDistortionsPerCtu[48] = { 
     // predModes*numSamples* ( numCus )
 
     // SizeID=2 At this size all CUs have 12 modes
