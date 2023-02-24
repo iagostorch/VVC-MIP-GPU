@@ -793,21 +793,13 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
 
             int nPassesForSad = nPassesOriginalFetch;
 
-            int NEW_SATD = 0;
-            int CONDUCT_SATD = 1;
-
             for(int pass=0; pass<nPassesForSad; pass++){
                 idx = pass*itemsPerCuInFetchOriginal + lid%itemsPerCuInFetchOriginal;
                 xPosInCu = idx%cuWidth;
                 yPosInCu = idx/cuWidth;
                 
                 localSAD[lid] += (int) abs(localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] - localUpsampledPrediction[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu]);
-                // Substitute predicted samples by prediction error
-                if(NEW_SATD)
-                    localUpsampledPrediction[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] = localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] - localUpsampledPrediction[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu];
-            }
-            barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SAD computation
-            
+            }            
 
             // if(1 && ctuIdx==16 && cuSizeIdx==_64x64 && currCu==3 && lid%128==0 && mode==0){
             //     printf("SERIAL SAD FOR,CTU=%d,WH=%dx%d,CU=%d,MODE=%d\n", ctuIdx, cuWidth, cuHeight, currCu, mode);
@@ -822,11 +814,11 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
             int stride = 64;
             int baseIdx = (lid/128)*128 + lid%128;
             for(int pass=0; pass<nPassesParallelSum; pass++){
+                barrier(CLK_LOCAL_MEM_FENCE);  
                 if(lid%128 < stride){
                     localSAD[baseIdx] = localSAD[baseIdx] + localSAD[baseIdx+stride];
                     stride = stride/2;
                 }    
-                barrier(CLK_LOCAL_MEM_FENCE);  
             }
 
             /* TRACE SAD
@@ -894,18 +886,16 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
                 }
             }
 
-            barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SATD computation
-
             // PARALLEL REDUCTION
             nPassesParallelSum = (int) log2( (float) min(128, cuWidth*cuHeight/16) ); // log2()
             stride = itemsPerCuInSatd/2;
             baseIdx = (lid/128)*128 + lid%128;
             for(int pass=0; pass<nPassesParallelSum; pass++){
+                barrier(CLK_LOCAL_MEM_FENCE);  
                 if(lid%128 < stride){
                     localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
                     stride = stride/2;
                 }    
-                barrier(CLK_LOCAL_MEM_FENCE);  
             }
 
             // Save SAD and SATD of current CU/mode in a __local buffer. We only access global memory when all SAD values are computed or all CUs
@@ -1231,18 +1221,13 @@ __kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const
 
             int nPassesForSad = nPassesOriginalFetch;
 
-            int NEW_SATD = 0;
-            int CONDUCT_SATD = 1;
-
             for(int pass=0; pass<nPassesForSad; pass++){
                 idx = pass*itemsPerCuInFetchOriginal + lid%itemsPerCuInFetchOriginal;
                 xPosInCu = idx%cuWidth;
                 yPosInCu = idx/cuWidth;
                 
                 localSAD[lid] += (int) abs(localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] - localUpsampledPrediction[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu]);
-            }
-            barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SAD computation
-            
+            }           
 
             // if(1 && ctuIdx==16 && cuSizeIdx==_64x64 && currCu==3 && lid%128==0 && mode==0){
             //     printf("SERIAL SAD FOR,CTU=%d,WH=%dx%d,CU=%d,MODE=%d\n", ctuIdx, cuWidth, cuHeight, currCu, mode);
@@ -1257,11 +1242,11 @@ __kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const
             int stride = 16;
             int baseIdx = (lid/32)*32 + lid%32;
             for(int pass=0; pass<nPassesParallelSum; pass++){
+                barrier(CLK_LOCAL_MEM_FENCE);  
                 if(lid%32 < stride){
                     localSAD[baseIdx] = localSAD[baseIdx] + localSAD[baseIdx+stride];
                     stride = stride/2;
                 }    
-                barrier(CLK_LOCAL_MEM_FENCE);  
             }
 
             /* TRACE SAD
@@ -1329,18 +1314,16 @@ __kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const
                 }
             }
 
-            barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SATD computation
-
             // PARALLEL REDUCTION
             nPassesParallelSum = (int) log2( (float) min(32, cuWidth*cuHeight/16) ); // log2()
             stride = itemsPerCuInSatd/2;
             baseIdx = (lid/32)*32 + lid%32;
             for(int pass=0; pass<nPassesParallelSum; pass++){
+                barrier(CLK_LOCAL_MEM_FENCE);  
                 if(lid%32 < stride){
                     localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
                     stride = stride/2;
                 }    
-                barrier(CLK_LOCAL_MEM_FENCE);  
             }
 
             //*/
@@ -1564,18 +1547,13 @@ __kernel void upsampleDistortionSizeId0(__global short *reducedPrediction, const
 
             int nPassesForSad = nPassesOriginalFetch;
 
-            int NEW_SATD = 0;
-            int CONDUCT_SATD = 1;
-
             for(int pass=0; pass<nPassesForSad; pass++){
                 idx = pass*itemsPerCuInFetchOriginal + lid%itemsPerCuInFetchOriginal;
                 xPosInCu = idx%cuWidth;
                 yPosInCu = idx/cuWidth;
                 
                 localSAD[lid] += (int) abs(localOriginalSamples[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu] - localReducedPrediction[cuIdxInIteration][yPosInCu*cuWidth + xPosInCu]);
-            }
-            barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SAD computation
-            
+            }            
 
             // if(1 && ctuIdx==16 && cuSizeIdx==_64x64 && currCu==3 && lid%128==0 && mode==0){
             //     printf("SERIAL SAD FOR,CTU=%d,WH=%dx%d,CU=%d,MODE=%d\n", ctuIdx, cuWidth, cuHeight, currCu, mode);
@@ -1590,11 +1568,11 @@ __kernel void upsampleDistortionSizeId0(__global short *reducedPrediction, const
             int stride = 8;
             int baseIdx = (lid/16)*16 + lid%16;
             for(int pass=0; pass<nPassesParallelSum; pass++){
+                barrier(CLK_LOCAL_MEM_FENCE);  
                 if(lid%16 < stride){
                     localSAD[baseIdx] = localSAD[baseIdx] + localSAD[baseIdx+stride];
                     stride = stride/2;
                 }    
-                barrier(CLK_LOCAL_MEM_FENCE);  
             }
 
             /* TRACE SAD
@@ -1665,18 +1643,16 @@ __kernel void upsampleDistortionSizeId0(__global short *reducedPrediction, const
                 }
             }
 
-            barrier(CLK_LOCAL_MEM_FENCE); // Wait until all workitems finish their SATD computation
-
             // PARALLEL REDUCTION
             nPassesParallelSum = (int) log2( (float) min(16, cuWidth*cuHeight/16) ); // log2()
             stride = itemsPerCuInSatd/2;
             baseIdx = (lid/16)*16 + lid%16;
             for(int pass=0; pass<nPassesParallelSum; pass++){
+                barrier(CLK_LOCAL_MEM_FENCE);  
                 if(lid%16 < stride){
                     localSATD[baseIdx] = localSATD[baseIdx] + localSATD[baseIdx+stride];
                     stride = stride/2;
                 }    
-                barrier(CLK_LOCAL_MEM_FENCE);  
             }
 
 
