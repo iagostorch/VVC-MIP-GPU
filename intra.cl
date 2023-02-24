@@ -508,7 +508,7 @@ __kernel void MIP_ReducedPred(__global short *reducedPrediction, const int frame
     } // End of current mode
 }
 
-__kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
+__kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL){
     int gid = get_global_id(0);
     int wg = get_group_id(0);
     int lid = get_local_id(0);
@@ -936,7 +936,7 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
     }
 }
 
-__kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
+__kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL){
     int gid = get_global_id(0);
     int wg = get_group_id(0);
     int lid = get_local_id(0);
@@ -1378,7 +1378,7 @@ __kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const
     }
 }
 
-__kernel void upsampleDistortionSizeId0(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
+__kernel void upsampleDistortionSizeId0(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL){
     int gid = get_global_id(0);
     int wg = get_group_id(0);
     int lid = get_local_id(0);

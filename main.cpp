@@ -595,10 +595,8 @@ int main(int argc, char *argv[])
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
     // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&redL_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&refL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&refT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refL_all_memObj);
     
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
@@ -655,10 +653,8 @@ int main(int argc, char *argv[])
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
     // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&redL_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&refL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&refT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refL_all_memObj);
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
@@ -714,10 +710,8 @@ int main(int argc, char *argv[])
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
     // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&redT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&redL_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 9, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 10, sizeof(cl_mem), (void *)&refL_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&refT_all_memObj);
+    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refL_all_memObj);
 
     probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
 
