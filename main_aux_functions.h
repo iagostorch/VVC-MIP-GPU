@@ -1,3 +1,5 @@
+#define MAX_PERFORMANCE_DIST 1 // When enabled, the individual values of SAD and SATD are not offloaded to the host, and the host does not read into malloc'd arrays
+
 #include <CL/cl.h>
 #include <string.h>
 #include <stdio.h>
@@ -402,7 +404,8 @@ void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, 
     double nanoSeconds = 0.0;
     cl_ulong read_time_start, read_time_end;
     cl_event read_event;
-    
+
+#if ! MAX_PERFORMANCE_DIST // When not HIGH PERFORMANCE, read SAD and SATD.
     error =  clEnqueueReadBuffer(command_queue, return_SAD_memObj, CL_TRUE, 0, 
             nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_SAD, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return prediction\n");
@@ -424,6 +427,9 @@ void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, 
     clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
     clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
     nanoSeconds += read_time_end-read_time_start;
+#endif
+    
+    // ALWAYS read minSadhad
 
     error =  clEnqueueReadBuffer(command_queue, return_minSadHad_memObj, CL_TRUE, 0, 
             nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_minSadHad, 0, NULL, &read_event);

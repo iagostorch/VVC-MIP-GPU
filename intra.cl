@@ -1,3 +1,5 @@
+#define MAX_PERFORMANCE_DIST 1 // When enabled, the individual values of SAD and SATD are not offloaded to the host
+
 #ifdef cl_intel_printf
 
 #pragma OPENCL EXTENSION cl_intel_printf : enable
@@ -514,7 +516,11 @@ __kernel void MIP_ReducedPred(__global short *reducedPrediction, const int frame
     } // End of current mode
 }
 
-__kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL){
+__kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const int frameWidth, const int frameHeight,
+#if ! MAX_PERFORMANCE_DIST
+ __global long *SAD, __global long *SATD,
+#endif
+                                                                                                                     __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL){
     int gid = get_global_id(0);
     int wg = get_group_id(0);
     int lid = get_local_id(0);
@@ -940,15 +946,22 @@ __kernel void upsampleDistortionSizeId2(__global short *reducedPrediction, const
             idxInGlobal    += cu*numPredictionModes*2 + mode;
 
             if(cu < ALL_cusPerCtu[cuSizeIdx]){
-                SAD[idxInGlobal] = ( long ) localSadEntireCtu[cu][mode];
-                SATD[idxInGlobal] = ( long ) localSatdEntireCtu[cu][mode];
+#if ! MAX_PERFORMANCE_DIST // When MAX PERFORMANCE is enabled, the individual SAD and SATD values are not returned to host
+                 SAD[idxInGlobal] = ( long ) localSadEntireCtu[cu][mode];
+                 SATD[idxInGlobal] = ( long ) localSatdEntireCtu[cu][mode];
+#endif
+                // minSadHad is always returned
                 minSadHad[idxInGlobal] = (long) min(2*localSadEntireCtu[cu][mode], localSatdEntireCtu[cu][mode]);
             }
         }
     }
 }
 
-__kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL){
+__kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const int frameWidth, const int frameHeight,
+#if ! MAX_PERFORMANCE_DIST
+ __global long *SAD, __global long *SATD,
+ #endif
+                                                                                                                      __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL){
     int gid = get_global_id(0);
     int wg = get_group_id(0);
     int lid = get_local_id(0);
@@ -1386,15 +1399,21 @@ __kernel void upsampleDistortionSizeId1(__global short *reducedPrediction, const
             idxInGlobal    += cu*numPredictionModes*2 + mode;
 
             if(cu < ALL_cusPerCtu[cuSizeIdx]){
+#if ! MAX_PERFORMANCE_DIST // When MAX PERFORMANCE is enabled, the individual SAD and SATD values are not returned to host
                 SAD[idxInGlobal] = ( long ) localSadEntireCtu[cu][mode];
                 SATD[idxInGlobal] = ( long ) localSatdEntireCtu[cu][mode];
+#endif
                 minSadHad[idxInGlobal] = (long) min(2*localSadEntireCtu[cu][mode], localSatdEntireCtu[cu][mode]);
             }
         }
     }
 }
 
-__kernel void upsampleDistortionSizeId0(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global long *SAD, __global long *SATD, __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL){
+__kernel void upsampleDistortionSizeId0(__global short *reducedPrediction, const int frameWidth, const int frameHeight,
+#if ! MAX_PERFORMANCE_DIST
+ __global long *SAD, __global long *SATD,
+ #endif
+                                                                                                                      __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL){
     int gid = get_global_id(0);
     int wg = get_group_id(0);
     int lid = get_local_id(0);
@@ -1735,8 +1754,10 @@ __kernel void upsampleDistortionSizeId0(__global short *reducedPrediction, const
             idxInGlobal    += cu*numPredictionModes*2 + mode;
 
             if(cu < 128){
+#if ! MAX_PERFORMANCE_DIST // When MAX PERFORMANCE is enabled, the individual SAD and SATD values are not returned to host                
                 SAD[idxInGlobal] = ( long ) localSadEntireCtu[cu][mode];
                 SATD[idxInGlobal] = ( long ) localSatdEntireCtu[cu][mode];
+#endif
                 minSadHad[idxInGlobal] = (long) min(2*localSadEntireCtu[cu][mode], localSatdEntireCtu[cu][mode]);
             }
         }
