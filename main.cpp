@@ -320,26 +320,82 @@ int main(int argc, char *argv[])
     /////////////////////////////////////////////////////////////////////////////////////////////////
 
     // Create a program from the kernel source (specifically for the device in the context variable)
-    cl_program program = clCreateProgramWithSource(context, 1, 
+    cl_program program_sizeid2, program_sizeid1, program_sizeid0; // Used to compile the upsample kernel with difference constants and use the same code
+    
+    program_sizeid2 = clCreateProgramWithSource(context, 1, 
                                                    (const char **)&source_str, (const size_t *)&source_size, &error);
-    probe_error(error, (char*)"Error creating program from source\n");
+    probe_error(error, (char*)"Error creating program from source with SizeId=2\n");
+    
+    program_sizeid1 = clCreateProgramWithSource(context, 1, 
+                                                   (const char **)&source_str, (const size_t *)&source_size, &error);
+    probe_error(error, (char*)"Error creating program from source with SizeId=1\n");
+    
+    program_sizeid0 = clCreateProgramWithSource(context, 1, 
+                                                   (const char **)&source_str, (const size_t *)&source_size, &error);
+    probe_error(error, (char*)"Error creating program from source with SizeId=0\n");
 
     // Build the program
-    error = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
+    char buildOptions2[100], buildOptions1[100], buildOptions0[100];
 
-    probe_error(error, (char*)"Error building the program\n");
+    sprintf(buildOptions2, "-DSIZEID=%d", 2);
+    error = clBuildProgram(program_sizeid2, 1, &device_id, buildOptions2, NULL, NULL);
+    probe_error(error, (char*)"Error building the program with SizeId=2\n");
     // Show debugging information when the build is not successful
     if (error == CL_BUILD_PROGRAM_FAILURE)
     {
         // Determine the size of the log
         size_t log_size;
-        clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+        clGetProgramBuildInfo(program_sizeid2, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
 
         // Allocate memory for the log
         char *log = (char *)malloc(log_size);
 
         // Get the log
-        clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+        clGetProgramBuildInfo(program_sizeid2, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+
+        // Print the log
+        printf("%s\n", log);
+        free(log);
+    }
+
+
+    sprintf(buildOptions1, "-DSIZEID=%d", 1);
+    error = clBuildProgram(program_sizeid1, 1, &device_id, buildOptions1, NULL, NULL);
+    probe_error(error, (char*)"Error building the program with SizeId=1\n");
+    // Show debugging information when the build is not successful
+    if (error == CL_BUILD_PROGRAM_FAILURE)
+    {
+        // Determine the size of the log
+        size_t log_size;
+        clGetProgramBuildInfo(program_sizeid1, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+
+        // Allocate memory for the log
+        char *log = (char *)malloc(log_size);
+
+        // Get the log
+        clGetProgramBuildInfo(program_sizeid1, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+
+        // Print the log
+        printf("%s\n", log);
+        free(log);
+    }
+
+
+    sprintf(buildOptions0, "-DSIZEID=%d", 0);
+    error = clBuildProgram(program_sizeid0, 1, &device_id, buildOptions0, NULL, NULL);
+    probe_error(error, (char*)"Error building the program with SizeId=0\n");
+    // Show debugging information when the build is not successful
+    if (error == CL_BUILD_PROGRAM_FAILURE)
+    {
+        // Determine the size of the log
+        size_t log_size;
+        clGetProgramBuildInfo(program_sizeid0, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+
+        // Allocate memory for the log
+        char *log = (char *)malloc(log_size);
+
+        // Get the log
+        clGetProgramBuildInfo(program_sizeid0, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
 
         // Print the log
         printf("%s\n", log);
@@ -429,7 +485,7 @@ int main(int argc, char *argv[])
     itemsPerWG = itemsPerWG_obtainReducedBoundaries;
 
     // Create kernel
-    kernel_initRefSamples = clCreateKernel(program, "initBoundaries", &error);
+    kernel_initRefSamples = clCreateKernel(program_sizeid2, "initBoundaries", &error);
     probe_error(error, (char*)"Error creating initBoundaries kernel\n"); 
     printf("Performing initBoundaries kernel...\n");
 
@@ -503,7 +559,7 @@ int main(int argc, char *argv[])
     itemsPerWG = itemsPerWG_obtainReducedPrediction;
 
     // Create kernel
-    kernel_reducedPrediction = clCreateKernel(program, "MIP_ReducedPred", &error);
+    kernel_reducedPrediction = clCreateKernel(program_sizeid2, "MIP_ReducedPred", &error);
     probe_error(error, (char *)"Error creating MIP_ReducedPred kernel\n");
     printf("Performing MIP_ReducedPred kernel...\n");
 
@@ -571,7 +627,7 @@ int main(int argc, char *argv[])
     //          START WITH CUs OF SizeID=2
 
     // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId2", &error);
+    kernel_upsampleDistortion = clCreateKernel(program_sizeid2, "upsampleDistortionSizeId2", &error);
     probe_error(error, (char *)"Error creating upsampleDistortionSizeId2 kernel\n");
     printf("Performing upsampleDistortionSizeId2 kernel...\n");
 
@@ -631,12 +687,14 @@ int main(int argc, char *argv[])
     execTime_upsampleDistortion = nanoSeconds;
     
 
+    
+
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //
     //          PROCEED TO CUs OF SizeID=1
 
     // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId1", &error);
+    kernel_upsampleDistortion = clCreateKernel(program_sizeid1, "upsampleDistortionSizeId2", &error);
     probe_error(error, (char *)"Error creating upsampleDistortionSizeId1 kernel\n");
     printf("Performing upsampleDistortionSizeId1 kernel...\n");
 
@@ -701,7 +759,7 @@ int main(int argc, char *argv[])
     //          PROCEED TO CUs OF SizeID=0
 
     // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program, "upsampleDistortionSizeId0", &error);
+    kernel_upsampleDistortion = clCreateKernel(program_sizeid0, "upsampleDistortionSizeId2", &error);
     probe_error(error, (char *)"Error creating upsampleDistortionSizeId0 kernel\n");
     printf("Performing upsampleDistortionSizeId0 kernel...\n");
 
@@ -817,7 +875,9 @@ int main(int argc, char *argv[])
     error |= clFinish(command_queue);
     error |= clReleaseKernel(kernel_initRefSamples);
     error |= clReleaseKernel(kernel_reducedPrediction);
-    error |= clReleaseProgram(program);
+    error |= clReleaseProgram(program_sizeid2);
+    error |= clReleaseProgram(program_sizeid1);
+    error |= clReleaseProgram(program_sizeid0);
     error |= clReleaseCommandQueue(command_queue);
     error |= clReleaseMemObject(referenceFrame_memObj);
     error |= clReleaseMemObject(return_predictionSignal_memObj);
