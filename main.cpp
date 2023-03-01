@@ -627,9 +627,9 @@ int main(int argc, char *argv[])
     //          START WITH CUs OF SizeID=2
 
     // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program_sizeid2, "upsampleDistortionSizeId2", &error);
-    probe_error(error, (char *)"Error creating upsampleDistortionSizeId2 kernel\n");
-    printf("Performing upsampleDistortionSizeId2 kernel...\n");
+    kernel_upsampleDistortion = clCreateKernel(program_sizeid2, "upsampleDistortion", &error);
+    probe_error(error, (char *)"Error creating upsampleDistortion kernel\n");
+    printf("Performing upsampleDistortion kernel...\n");
 
     // Query for work groups sizes information
     error = clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
@@ -641,7 +641,7 @@ int main(int argc, char *argv[])
     cout << "-- Preferred WG size multiple " << preferred_size << endl;
     cout << "-- Maximum WG size " << maximum_size << endl;
 
-    // Set the arguments of the upsampleDistortionSizeId2 kernel
+    // Set the arguments of the upsampleDistortion kernel
     error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
@@ -694,9 +694,9 @@ int main(int argc, char *argv[])
     //          PROCEED TO CUs OF SizeID=1
 
     // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program_sizeid1, "upsampleDistortionSizeId2", &error);
-    probe_error(error, (char *)"Error creating upsampleDistortionSizeId1 kernel\n");
-    printf("Performing upsampleDistortionSizeId1 kernel...\n");
+    kernel_upsampleDistortion = clCreateKernel(program_sizeid1, "upsampleDistortion", &error);
+    probe_error(error, (char *)"Error creating upsampleDistortion kernel\n");
+    printf("Performing upsampleDistortion kernel...\n");
 
     // Query for work groups sizes information
     error = clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
@@ -708,7 +708,7 @@ int main(int argc, char *argv[])
     cout << "-- Preferred WG size multiple " << preferred_size << endl;
     cout << "-- Maximum WG size " << maximum_size << endl;
 
-    // Set the arguments of the upsampleDistortionSizeId1 kernel
+    // Set the arguments of the upsampleDistortion kernel
     error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
@@ -759,9 +759,9 @@ int main(int argc, char *argv[])
     //          PROCEED TO CUs OF SizeID=0
 
     // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program_sizeid0, "upsampleDistortionSizeId2", &error);
-    probe_error(error, (char *)"Error creating upsampleDistortionSizeId0 kernel\n");
-    printf("Performing upsampleDistortionSizeId0 kernel...\n");
+    kernel_upsampleDistortion = clCreateKernel(program_sizeid0, "upsampleDistortion", &error);
+    probe_error(error, (char *)"Error creating upsampleDistortion kernel\n");
+    printf("Performing upsampleDistortion kernel...\n");
 
     // Query for work groups sizes information
     error = clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
@@ -773,7 +773,7 @@ int main(int argc, char *argv[])
     cout << "-- Preferred WG size multiple " << preferred_size << endl;
     cout << "-- Maximum WG size " << maximum_size << endl;
 
-    // Set the arguments of the upsampleDistortionSizeId0 kernel
+    // Set the arguments of the upsampleDistortion kernel
     error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
     error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
