@@ -1,5 +1,11 @@
 #define MAX_PERFORMANCE_DIST 1 // When enabled, the individual values of SAD and SATD are not offloaded to the host, and the host does not read into malloc'd arrays
 
+#define TRACE_POWER 1   // When enabled the host is simplified by reducing unneccessary memory reads and prints, the timestamp of major operations is printed, the GPU operations are repeated N_REPS times
+
+#define N_ENQUEUE 1
+
+int N_REPS = -1; // Overwritten by sys.argv
+
 #include <CL/cl.h>
 #include <string.h>
 #include <stdio.h>
@@ -8,6 +14,8 @@
 #include <sstream> 
 #include <fstream> 
 #include <math.h>
+#include <time.h>
+#include <sys/time.h>
 
 #include "constants.h"
 
@@ -24,8 +32,39 @@ float readTime_SAD = 0.0;
 float execTime_reducedBoundaries = 0;
 float execTime_reducedPrediction = 0;
 float execTime_upsampleDistortion = 0;
+float execTime_upsampleDistortion_SizeId2 = 0;
+float execTime_upsampleDistortion_SizeId1 = 0;
+float execTime_upsampleDistortion_SizeId0 = 0;
+float totalGpuTime = 0; // Write, Exec, Read
 
 float execTime = 0;
+
+// used for the timestamps
+typedef struct DateAndTime {
+    int year;
+    int month;
+    int day;
+    int hour;
+    int minutes;
+    int seconds;
+    int msec;
+} DateAndTime;
+
+    DateAndTime date_and_time;
+    struct timeval tv;
+    struct tm *tm;
+
+
+void print_timestamp(char* messagePreffix){
+    gettimeofday(&tv, NULL);
+    tm = localtime(&tv.tv_sec);
+    date_and_time.hour = tm->tm_hour;
+    date_and_time.minutes = tm->tm_min;
+    date_and_time.seconds = tm->tm_sec;
+    date_and_time.msec = (int) (tv.tv_usec / 1000);
+                // hh:mm:ss:ms
+    printf("%s @ %02d:%02d:%02d:%03d\n", messagePreffix,date_and_time.hour, date_and_time.minutes, date_and_time.seconds, date_and_time.msec );
+}
 
 void probe_error(cl_int error, char* message){
     if (error != CL_SUCCESS ) {
@@ -442,7 +481,7 @@ void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, 
     clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
     nanoSeconds += read_time_end-read_time_start;
 
-    readTime_SAD = nanoSeconds;
+    readTime_SAD += nanoSeconds;
 }
 
 // Read data from memory objects into arrays
@@ -717,20 +756,28 @@ void reportTargetDistortionValues_File(long int *SAD, long int *SATD, long int *
 }
 
 void reportTimingResults(){
+    totalGpuTime = writeTime + execTime_reducedBoundaries + execTime_reducedPrediction + execTime_upsampleDistortion + readTime_SAD;
+
     printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n");
     printf("TIMING RESULTS (nanoseconds)\n");
-    printf("Write,%f\n", writeTime);
-    printf("InitBoundaries:  Execution,%f\n", execTime_reducedBoundaries);
-    printf("InitBoundaries:  Read size-reduced,%f\n", readTime_reducedBoundariesSize);
-    printf("InitBoundaries:  Read size-complete,%f\n", readTime_completeBoundariesSize);
-    printf("InitBoundaries:  Read unified-reduced,%f\n", readTime_reducedBoundariesUnified);
-    printf("InitBoundaries:  Read unified-complete,%f\n", readTime_completeBoundariesUnified);
+    printf("Write(%dx),%f,%.3f\n", N_REPS, writeTime, writeTime/totalGpuTime);
+    printf("InitBoundaries(%dx):  Execution,%f,%.3f\n", N_REPS, execTime_reducedBoundaries, execTime_reducedBoundaries/totalGpuTime);
+    if(!TRACE_POWER){
+        printf("InitBoundaries(%dx):  Read size-reduced,%f\n", N_REPS, readTime_reducedBoundariesSize);
+        printf("InitBoundaries(%dx):  Read size-complete,%f\n", N_REPS, readTime_completeBoundariesSize);
+        printf("InitBoundaries(%dx):  Read unified-reduced,%f\n", N_REPS, readTime_reducedBoundariesUnified);
+        printf("InitBoundaries(%dx):  Read unified-complete,%f\n", N_REPS, readTime_completeBoundariesUnified);
+    }
+    printf("ReducedPrediction(%dx):  Execution,%f,%.3f\n", N_REPS, execTime_reducedPrediction, execTime_reducedPrediction/totalGpuTime);
+    if(!TRACE_POWER)
+        printf("ReducedPrediction(%dx):  Read,%f\n", N_REPS, readTime_reducedPrediction);   
 
-    printf("ReducedPrediction:  Execution,%f\n", execTime_reducedPrediction);
-    printf("ReducedPrediction:  Read,%f\n", readTime_reducedPrediction);   
-
-    printf("UpsamplePredictionDistortion: Execution,%f\n", execTime_upsampleDistortion); 
-    printf("UpsamplePredictionDistortion: Read,%f\n", readTime_SAD); 
+    printf("UpsamplePredictionDistortion Id=2(%dx): Execution,%f,%.3f\n", N_REPS, execTime_upsampleDistortion_SizeId2, execTime_upsampleDistortion_SizeId2/totalGpuTime); 
+    printf("UpsamplePredictionDistortion Id=1(%dx): Execution,%f,%.3f\n", N_REPS, execTime_upsampleDistortion_SizeId1, execTime_upsampleDistortion_SizeId1/totalGpuTime); 
+    printf("UpsamplePredictionDistortion Id=0(%dx): Execution,%f,%.3f\n", N_REPS, execTime_upsampleDistortion_SizeId0, execTime_upsampleDistortion_SizeId0/totalGpuTime); 
+    printf("UpsamplePredictionDistortion(%dx): Execution,%f,%.3f\n", N_REPS, execTime_upsampleDistortion, execTime_upsampleDistortion/totalGpuTime); 
+    printf("UpsamplePredictionDistortion(%dx): Read,%f,%.3f\n", N_REPS, readTime_SAD, readTime_SAD/totalGpuTime); 
+    printf("W_E_R(%dx):TotalGpuTime, %f\n", N_REPS, totalGpuTime); 
     printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n\n");    
 }
 

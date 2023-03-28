@@ -9,7 +9,6 @@
 #include <string.h>
 #include <limits.h>
 #include <assert.h>
-#include <time.h>
 #include "main_aux_functions.h"
 
 using namespace std;
@@ -24,6 +23,9 @@ using namespace std;
 
 int main(int argc, char *argv[])
 {
+    if(TRACE_POWER)
+        print_timestamp((char*)"STARTED HOST");
+
     // Load the kernel source code into the array source_str
     FILE *fp;
     char *source_str;
@@ -81,13 +83,17 @@ int main(int argc, char *argv[])
     cl_device_id tmp_device_ids[5] = {NULL, NULL, NULL, NULL, NULL};
 
     // Scan all platforms...
-    printf("\n");
+
+    if(!TRACE_POWER)
+        printf("\n");
+
     for (cl_uint p = 0; p < ret_num_platforms; p++)
     {
         error = clGetPlatformInfo(platform_id[p], CL_PLATFORM_NAME, 128 * sizeof(char), platform_name, NULL);
         probe_error(error, (char*)"Error querying CL_PLATFORM_NAME\n");
-        printf("Scanning platform %d...\n", p);
-
+        if(!TRACE_POWER)
+            printf("Scanning platform %d...\n", p);
+    
         // Query all CPU devices on current platform, and copy them to global CPU devices list (cpu_device_ids)
         error = clGetDeviceIDs( platform_id[p], CL_DEVICE_TYPE_CPU, 0, 
             NULL, &ret_cpu_num_devices);
@@ -112,41 +118,45 @@ int main(int argc, char *argv[])
                 assigned_gpus++;
         }
     }
-    printf("\n");
+    if(!TRACE_POWER)
+        printf("\n");
 
     char device_name[1024];
     char device_extensions[1024];
 
-    // List the ID and name for each CPU and GPU device
-    for (int cpu = 0; cpu < assigned_cpus; cpu++)
-    {
-        error = clGetDeviceInfo(cpu_device_ids[cpu], CL_DEVICE_NAME, 1024 * sizeof(char), device_name, NULL);
-        error&= clGetDeviceInfo(cpu_device_ids[cpu], CL_DEVICE_EXTENSIONS, 1024 * sizeof(char), device_extensions, NULL);
-        probe_error(error, (char*)"Error querying CL_DEVICE_NAME\n");
+    if(!TRACE_POWER){
+        // List the ID and name for each CPU and GPU device
+        for (int cpu = 0; cpu < assigned_cpus; cpu++)
+        {
+            error = clGetDeviceInfo(cpu_device_ids[cpu], CL_DEVICE_NAME, 1024 * sizeof(char), device_name, NULL);
+            error&= clGetDeviceInfo(cpu_device_ids[cpu], CL_DEVICE_EXTENSIONS, 1024 * sizeof(char), device_extensions, NULL);
+            probe_error(error, (char*)"Error querying CL_DEVICE_NAME\n");
 
-        cout << "CPU " << cpu << endl;
-        cout << "\tid " << cpu_device_ids[cpu] << endl << "\t" <<  device_name << endl;
-        cout << "\tExtensions: " << device_extensions << endl;
-    }
-    for (int gpu = 0; gpu < assigned_gpus; gpu++)
-    {
-        error = clGetDeviceInfo(gpu_device_ids[gpu], CL_DEVICE_NAME, 1024 * sizeof(char), device_name, NULL);
-        probe_error(error, (char*)"Error querying CL_DEVICE_NAME\n");
-        error&= clGetDeviceInfo(gpu_device_ids[gpu], CL_DEVICE_EXTENSIONS, 1024 * sizeof(char), device_extensions, NULL);
+            cout << "CPU " << cpu << endl;
+            cout << "\tid " << cpu_device_ids[cpu] << endl << "\t" <<  device_name << endl;
+            cout << "\tExtensions: " << device_extensions << endl;
+        }
+        for (int gpu = 0; gpu < assigned_gpus; gpu++)
+        {
+            error = clGetDeviceInfo(gpu_device_ids[gpu], CL_DEVICE_NAME, 1024 * sizeof(char), device_name, NULL);
+            probe_error(error, (char*)"Error querying CL_DEVICE_NAME\n");
+            error&= clGetDeviceInfo(gpu_device_ids[gpu], CL_DEVICE_EXTENSIONS, 1024 * sizeof(char), device_extensions, NULL);
 
-        cout << "GPU " << gpu << endl;
-        cout << "\tid " << gpu_device_ids[gpu] << endl << "\t" <<  device_name << endl;
-        cout << "\tExtensions: " << device_extensions << endl;
+            cout << "GPU " << gpu << endl;
+            cout << "\tid " << gpu_device_ids[gpu] << endl << "\t" <<  device_name << endl;
+            cout << "\tExtensions: " << device_extensions << endl;
+        }
     }
 
     // Create "target" device and assign proper IDs
     cl_device_id device_id = NULL; 
     
     // Select what CPU or GPU will be used based on parameters
-    if(argc==5){
+    if(argc==6){
         if(!strcmp(argv[1],"CPU")){
             if(stoi(argv[2]) < assigned_cpus){
-                cout << "COMPUTING ON CPU " << argv[2] << endl;        
+                if(!TRACE_POWER)
+                    cout << "COMPUTING ON CPU " << argv[2] << endl;        
                 device_id = cpu_device_ids[stoi(argv[2])];    
             }
             else{
@@ -156,7 +166,8 @@ int main(int argc, char *argv[])
         }
         else if(!strcmp(argv[1],"GPU")){
             if(stoi(argv[2]) < assigned_gpus){
-                cout << "COMPUTING ON GPU " << argv[2] << endl;        
+                if(!TRACE_POWER)
+                    cout << "COMPUTING ON GPU " << argv[2] << endl;        
                 device_id = gpu_device_ids[stoi(argv[2])];    
             }
             else{
@@ -171,7 +182,7 @@ int main(int argc, char *argv[])
     }
     else{
         cout << "\n\n\nFailed to specify the input parameters. Proper execution has the form of" << endl;
-        cout << "./main <CPU or GPU> <# of CPU or GPU device> <file with frames of reference frame> <output file preffix>\n\n\n" << endl;
+        cout << "./main <CPU or GPU> <# of CPU or GPU device> <file with frames of reference frame> <output file preffix> <# of repetitions in GPU>\n\n\n" << endl;
         exit(0);
     }
 
@@ -180,7 +191,9 @@ int main(int argc, char *argv[])
     error = clGetDeviceInfo(device_id, CL_DEVICE_MAX_COMPUTE_UNITS, 0, NULL, &ret_val);
     error|= clGetDeviceInfo(device_id, CL_DEVICE_MAX_COMPUTE_UNITS, ret_val, &max_compute_units, NULL);
     probe_error(error, (char*)"Error querying maximum number of compute units of device\n");
-    cout << "-- Max compute units " << max_compute_units << endl;
+    if(!TRACE_POWER)
+        cout << "-- Max compute units " << max_compute_units << endl;
+
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
     /////         STARTS BY CREATING A CONTEXT, QUEUE, AND MOVING DATA INTO THE BUFFERS         /////
@@ -197,8 +210,8 @@ int main(int argc, char *argv[])
     probe_error(error, (char*)"Error creating command queue\n");
 
     // TODO: This should be an input parameter
-    const int frameWidth  = 1920; // 1920 or 3840
-    const int frameHeight = 1080; // 1080 or 2160
+    const int frameWidth  = 3840; // 1920 or 3840
+    const int frameHeight = 2160; // 1080 or 2160
 
     const int itemsPerWG_obtainReducedBoundaries = 128;
     const int itemsPerWG_obtainReducedPrediction = 256;
@@ -211,6 +224,8 @@ int main(int argc, char *argv[])
     string refFrameFileName = argv[3];
 
     string outputFilePreffix = argv[4]; // Preffix of exported files containing the prediction signal
+
+    N_REPS = stoi(argv[5]);
 
     ifstream refFile;
     refFile.open(refFrameFileName);
@@ -231,6 +246,8 @@ int main(int argc, char *argv[])
 
     unsigned short *reference_frame = (unsigned short *)malloc(sizeof(short) * FRAME_SIZE);
 
+    if(TRACE_POWER)
+        print_timestamp((char*) "START READ SAMPLES .csv");
     // Read the samples from reference frame into the reference array
     for (int h=0; h<frameHeight; h++)
     {
@@ -244,6 +261,8 @@ int main(int argc, char *argv[])
             reference_frame[h*frameWidth + w] = stoi(refVal);
         }
     }
+    if(TRACE_POWER)
+        print_timestamp((char*) "FINISH READ SAMPLES .csv");
 
     // These buffers are used to store the reduced boundaries for all CU sizes
     error = 0;
@@ -298,15 +317,22 @@ int main(int argc, char *argv[])
     cl_ulong write_time_end;
     cl_event write_event;
 
-    error = clEnqueueWriteBuffer(command_queue, referenceFrame_memObj, CL_TRUE, 0,
-                                 FRAME_SIZE * sizeof(short), reference_frame, 0, NULL, &write_event);
-    error = clWaitForEvents(1, &write_event);
-    probe_error(error, (char*)"Error waiting for write events\n");  
-    error = clFinish(command_queue);
-    probe_error(error, (char*)"Error finishing write\n");
-    clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_START, sizeof(write_time_start), &write_time_start, NULL);
-    clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_END, sizeof(write_time_end), &write_time_end, NULL);
-    nanoSeconds += write_time_end-write_time_start;
+    if(TRACE_POWER)
+        print_timestamp((char*) "START WRITE SAMPLES MEMOBJ");
+    for(int rep=0; rep<max(N_REPS,N_ENQUEUE); rep++){
+        error = clEnqueueWriteBuffer(command_queue, referenceFrame_memObj, CL_TRUE, 0,
+                                    FRAME_SIZE * sizeof(short), reference_frame, 0, NULL, &write_event);
+        error = clWaitForEvents(1, &write_event);
+        probe_error(error, (char*)"Error waiting for write events\n");  
+        error = clFinish(command_queue);
+        probe_error(error, (char*)"Error finishing write\n");
+        clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_START, sizeof(write_time_start), &write_time_start, NULL);
+        clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_END, sizeof(write_time_end), &write_time_end, NULL);
+        nanoSeconds += write_time_end-write_time_start;
+    }
+    if(TRACE_POWER)
+        print_timestamp((char*) "FINISH WRITE SAMPLES MEMOBJ");
+    
 
     writeTime = nanoSeconds;
     nanoSeconds = 0.0;
@@ -337,7 +363,9 @@ int main(int argc, char *argv[])
     // Build the program
     char buildOptions2[100], buildOptions1[100], buildOptions0[100];
 
-    sprintf(buildOptions2, "-DSIZEID=%d", 2);
+    if(TRACE_POWER)
+        print_timestamp((char*) "START BUILD KERNELS");
+    sprintf(buildOptions2, "-DSIZEID=%d -DTRACE_POWER=%d -DN_REPS=%d -DMAX_PERFORMANCE_DIST=%d", 2, TRACE_POWER, N_REPS, MAX_PERFORMANCE_DIST);
     error = clBuildProgram(program_sizeid2, 1, &device_id, buildOptions2, NULL, NULL);
     probe_error(error, (char*)"Error building the program with SizeId=2\n");
     // Show debugging information when the build is not successful
@@ -359,7 +387,7 @@ int main(int argc, char *argv[])
     }
 
 
-    sprintf(buildOptions1, "-DSIZEID=%d", 1);
+    sprintf(buildOptions1, "-DSIZEID=%d -DTRACE_POWER=%d -DN_REPS=%d -DMAX_PERFORMANCE_DIST=%d", 1, TRACE_POWER, N_REPS, MAX_PERFORMANCE_DIST);
     error = clBuildProgram(program_sizeid1, 1, &device_id, buildOptions1, NULL, NULL);
     probe_error(error, (char*)"Error building the program with SizeId=1\n");
     // Show debugging information when the build is not successful
@@ -381,7 +409,7 @@ int main(int argc, char *argv[])
     }
 
 
-    sprintf(buildOptions0, "-DSIZEID=%d", 0);
+    sprintf(buildOptions0, "-DSIZEID=%d -DTRACE_POWER=%d -DN_REPS=%d -DMAX_PERFORMANCE_DIST=%d", 0, TRACE_POWER, N_REPS, MAX_PERFORMANCE_DIST);
     error = clBuildProgram(program_sizeid0, 1, &device_id, buildOptions0, NULL, NULL);
     probe_error(error, (char*)"Error building the program with SizeId=0\n");
     // Show debugging information when the build is not successful
@@ -401,6 +429,8 @@ int main(int argc, char *argv[])
         printf("%s\n", log);
         free(log);
     }
+    if(TRACE_POWER)
+        print_timestamp((char*) "FINISH BUILD KERNELS");
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
     /////                  VARIABLES SHARED BETWEEN THE EXECUTION OF ALL KERNELS                /////
@@ -430,7 +460,7 @@ int main(int argc, char *argv[])
     int reportDistortionOnlyTarget = 1;
 
     int reportDistortionToFile = 1;
-    int targetCTU = 16;
+    int targetCTU = 31;
 
     ///////////////////////////////////////////////////////////////////////////////////////
     /////              THESE DYNAMIC ARRAYS  MUST BE FREED AFTER EXECUTION            /////
@@ -496,8 +526,8 @@ int main(int argc, char *argv[])
     error |= clGetKernelWorkGroupInfo(kernel_initRefSamples, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
 
     probe_error(error, (char*)"Error querying preferred or maximum work group size\n");
-    cout << "-- Preferred WG size multiple " << preferred_size << endl;
-    cout << "-- Maximum WG size " << maximum_size << endl;
+    //cout << "-- Preferred WG size multiple " << preferred_size << endl;
+    //cout << "-- Maximum WG size " << maximum_size << endl;
 
     // Set the arguments of the kernel initBoundaries
     error_1 = clSetKernelArg(kernel_initRefSamples, 0, sizeof(cl_mem), (void *)&referenceFrame_memObj);
@@ -517,31 +547,37 @@ int main(int argc, char *argv[])
     global_item_size = nWG*itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
     local_item_size = itemsPerWG;
 
-    error = clEnqueueNDRangeKernel(command_queue, kernel_initRefSamples, 1, NULL,
-                                   &global_item_size, &local_item_size, 0, NULL, &event);
-    probe_error(error, (char*)"Error enqueuing kernel\n");
+    if(TRACE_POWER)
+        print_timestamp((char*) "START ENQUEUE initBoundaries");
+    for(int i=0; i<N_ENQUEUE; i++){
+        error = clEnqueueNDRangeKernel(command_queue, kernel_initRefSamples, 1, NULL,
+                                    &global_item_size, &local_item_size, 0, NULL, &event);
+        probe_error(error, (char*)"Error enqueuing kernel\n");
 
-    error = clWaitForEvents(1, &event);
-    probe_error(error, (char*)"Error waiting for events\n");
+        error = clWaitForEvents(1, &event);
+        probe_error(error, (char*)"Error waiting for events\n");
 
-    error = clFinish(command_queue);
-    probe_error(error, (char*)"Error finishing\n");
+        error = clFinish(command_queue);
+        probe_error(error, (char*)"Error finishing\n");
 
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
-    nanoSeconds = time_end-time_start;
+        clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+        clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+        nanoSeconds = time_end-time_start;
 
-    execTime_reducedBoundaries = nanoSeconds;
+        execTime_reducedBoundaries += nanoSeconds;
 
-    execTime = execTime_reducedBoundaries;
-    nanoSeconds = 0;
-
-    // Read affine results from memory objects into host arrays
-    readMemobjsIntoArray_UnifiedBoundaries(command_queue, nCTUs, redT_all_memObj, refT_all_memObj, return_unified_redT, return_unified_refT, redL_all_memObj, refL_all_memObj, return_unified_redL, return_unified_refL);
-        
+        nanoSeconds = 0;
+    }
+    if(TRACE_POWER)
+        print_timestamp((char*) "FINISH ENQUEUE initBoundaries");
+    execTime += execTime_reducedBoundaries;
+     
     // ----------------  EXPORT BOUNDARIES FORM UNIFIED BUFFERS
     //
     if(enableTerminalReport){
+        // Read affine results from memory objects into host arrays
+        readMemobjsIntoArray_UnifiedBoundaries(command_queue, nCTUs, redT_all_memObj, refT_all_memObj, return_unified_redT, return_unified_refT, redL_all_memObj, refL_all_memObj, return_unified_redL, return_unified_refL);
+       
         if(reportReducedBoundaries)
             reportReducedBoundariesTargetCtu_ALL(return_unified_redT, return_unified_redL, targetCTU, frameWidth, frameHeight);
         if(reportCompleteBoundaries)
@@ -570,8 +606,8 @@ int main(int argc, char *argv[])
     error |= clGetKernelWorkGroupInfo(kernel_reducedPrediction, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
 
     probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
-    cout << "-- Preferred WG size multiple " << preferred_size << endl;
-    cout << "-- Maximum WG size " << maximum_size << endl;
+    //cout << "-- Preferred WG size multiple " << preferred_size << endl;
+    //cout << "-- Maximum WG size " << maximum_size << endl;
 
     // Set the arguments of the MIP_ReducedPred kernel
     error_1  = clSetKernelArg(kernel_reducedPrediction, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
@@ -589,6 +625,9 @@ int main(int argc, char *argv[])
     global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
     local_item_size = itemsPerWG;
 
+if(TRACE_POWER)
+    print_timestamp((char*) "START ENQUEUE reducedPred");
+for(int i=0; i<N_ENQUEUE; i++){
     error = clEnqueueNDRangeKernel(command_queue, kernel_reducedPrediction, 1, NULL,
                                    &global_item_size, &local_item_size, 0, NULL, &event);
     probe_error(error, (char *)"Error enqueuing kernel\n");
@@ -599,15 +638,20 @@ int main(int argc, char *argv[])
     error = clFinish(command_queue);
     probe_error(error, (char *)"Error finishing\n");
 
+
     clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
     clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
     nanoSeconds = time_end - time_start;
 
-    execTime_reducedPrediction = nanoSeconds;
-
-    readMemobjsIntoArray_reducedPrediction(command_queue, nCTUs, TOTAL_PREDICTION_MODES, return_predictionSignal_memObj,  return_reducedPredictionSignal, return_SAD_memObj, return_SAD);
+    execTime_reducedPrediction += nanoSeconds;
+}
+if(TRACE_POWER)
+    print_timestamp((char*) "FINISH ENQUEUE reducedPred");
+execTime += execTime_reducedPrediction;
+    
 
     if(enableTerminalReport){
+        readMemobjsIntoArray_reducedPrediction(command_queue, nCTUs, TOTAL_PREDICTION_MODES, return_predictionSignal_memObj,  return_reducedPredictionSignal, return_SAD_memObj, return_SAD);
         if(reportReducedPrediction)
             reportReducedPredictionTargetCtu_ALL(return_reducedPredictionSignal, targetCTU, frameWidth, frameHeight);
     }
@@ -638,8 +682,8 @@ int main(int argc, char *argv[])
     error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
 
     probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
-    cout << "-- Preferred WG size multiple " << preferred_size << endl;
-    cout << "-- Maximum WG size " << maximum_size << endl;
+    //cout << "-- Preferred WG size multiple " << preferred_size << endl;
+    //cout << "-- Maximum WG size " << maximum_size << endl;
 
     // Set the arguments of the upsampleDistortion kernel
     error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
@@ -670,6 +714,9 @@ int main(int argc, char *argv[])
     global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
     local_item_size = itemsPerWG;
 
+if(TRACE_POWER)
+    print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=2");
+for(int i=0; i<N_ENQUEUE; i++){
     error = clEnqueueNDRangeKernel(command_queue, kernel_upsampleDistortion, 1, NULL,
                                    &global_item_size, &local_item_size, 0, NULL, &event);
     probe_error(error, (char *)"Error enqueuing kernel\n");
@@ -680,13 +727,17 @@ int main(int argc, char *argv[])
     error = clFinish(command_queue);
     probe_error(error, (char *)"Error finishing\n");
 
+
     clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
     clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
     nanoSeconds = time_end - time_start;
 
-    execTime_upsampleDistortion = nanoSeconds;
+    execTime_upsampleDistortion_SizeId2 += nanoSeconds;
     
-
+}
+if(TRACE_POWER)
+    print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=2");
+execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId2;
     
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -705,8 +756,8 @@ int main(int argc, char *argv[])
     error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
 
     probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
-    cout << "-- Preferred WG size multiple " << preferred_size << endl;
-    cout << "-- Maximum WG size " << maximum_size << endl;
+    //cout << "-- Preferred WG size multiple " << preferred_size << endl;
+    //cout << "-- Maximum WG size " << maximum_size << endl;
 
     // Set the arguments of the upsampleDistortion kernel
     error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
@@ -737,6 +788,9 @@ int main(int argc, char *argv[])
     global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
     local_item_size = itemsPerWG;
 
+if(TRACE_POWER)
+    print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=1");
+for(int i=0; i<N_ENQUEUE; i++){
     error = clEnqueueNDRangeKernel(command_queue, kernel_upsampleDistortion, 1, NULL,
                                    &global_item_size, &local_item_size, 0, NULL, &event);
     probe_error(error, (char *)"Error enqueuing kernel\n");
@@ -751,7 +805,11 @@ int main(int argc, char *argv[])
     clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
     nanoSeconds = time_end - time_start;
 
-    execTime_upsampleDistortion += nanoSeconds;
+    execTime_upsampleDistortion_SizeId1 += nanoSeconds;
+}
+if(TRACE_POWER)
+    print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=1");    
+execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId1;
 
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -770,8 +828,8 @@ int main(int argc, char *argv[])
     error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
 
     probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
-    cout << "-- Preferred WG size multiple " << preferred_size << endl;
-    cout << "-- Maximum WG size " << maximum_size << endl;
+    //cout << "-- Preferred WG size multiple " << preferred_size << endl;
+    //cout << "-- Maximum WG size " << maximum_size << endl;
 
     // Set the arguments of the upsampleDistortion kernel
     error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
@@ -802,6 +860,9 @@ int main(int argc, char *argv[])
     global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
     local_item_size = itemsPerWG;
 
+if(TRACE_POWER)
+    print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=0");    
+for(int i=0; i<N_ENQUEUE; i++){
     error = clEnqueueNDRangeKernel(command_queue, kernel_upsampleDistortion, 1, NULL,
                                    &global_item_size, &local_item_size, 0, NULL, &event);
     probe_error(error, (char *)"Error enqueuing kernel\n");
@@ -816,9 +877,19 @@ int main(int argc, char *argv[])
     clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
     nanoSeconds = time_end - time_start;
 
-    execTime_upsampleDistortion += nanoSeconds;
+    execTime_upsampleDistortion_SizeId0 += nanoSeconds;
+    }
+    if(TRACE_POWER)
+        print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=0");    
+    execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId0;
+    if(TRACE_POWER)
+        print_timestamp((char*) "START READ DISTORTION");
+    // READ N TIMES TO ACCOUNT FOR N KERNEL EXECUTIONS
+    for(int rep=0; rep<max(N_REPS,N_ENQUEUE); rep++)
+        readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, return_minSadHad);
+    if(TRACE_POWER)
+        print_timestamp((char*) "FINISH READ DISTORTION");
 
-    readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, return_minSadHad);
 
     // REPORT DISTORTION VALUES TO TERMINAL
     if(enableTerminalReport && reportDistortion){
@@ -902,6 +973,9 @@ int main(int argc, char *argv[])
     free(return_unified_redL);
     free(return_unified_refT);
     free(return_unified_refL);
+
+    if(TRACE_POWER)
+        print_timestamp((char*) "FINISH HOST");
 
     return 0;
 }
