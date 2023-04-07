@@ -1347,7 +1347,7 @@ __constant unsigned short ALL_stridedCusPerCtu[48] = {
 
 // This is used as a stride when we must access the prediction signal of multiple CUs
 // Since CUs of different size may have 8x8 or 4x4 samples it is not possible to compute the stride manually
-__constant unsigned int ALL_stridedPredictionsPerCtu[48] = { 
+__constant long unsigned int ALL_stridedPredictionsPerCtu[48] = { 
     // predModes*numSamples* ( numCus )
 
     // SizeID=2 At this size all preditions have 8x8 samples

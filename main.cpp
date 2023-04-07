@@ -210,8 +210,8 @@ int main(int argc, char *argv[])
     probe_error(error, (char*)"Error creating command queue\n");
 
     // TODO: This should be an input parameter
-    const int frameWidth  = 3840; // 1920 or 3840
-    const int frameHeight = 2160; // 1080 or 2160
+    const int frameWidth  = 1920; // 1920 or 3840
+    const int frameHeight = 1080; // 1080 or 2160
 
     const int itemsPerWG_obtainReducedBoundaries = 128;
     const int itemsPerWG_obtainReducedPrediction = 256;
@@ -225,7 +225,7 @@ int main(int argc, char *argv[])
 
     string outputFilePreffix = argv[4]; // Preffix of exported files containing the prediction signal
 
-    N_REPS = stoi(argv[5]);
+    N_FRAMES = stoi(argv[5]);
 
     ifstream refFile;
     refFile.open(refFrameFileName);
@@ -244,23 +244,28 @@ int main(int argc, char *argv[])
     const int TEST_TRANSPOSED_MODES = 1;
     const int TOTAL_PREDICTION_MODES = NUM_PRED_MODES * (TEST_TRANSPOSED_MODES ? 2 : 1);
 
-    unsigned short *reference_frame = (unsigned short *)malloc(sizeof(short) * FRAME_SIZE);
+    unsigned short *reference_frame = (unsigned short *)malloc(sizeof(short) * FRAME_SIZE * N_FRAMES);
 
     if(TRACE_POWER)
         print_timestamp((char*) "START READ SAMPLES .csv");
-    // Read the samples from reference frame into the reference array
-    for (int h=0; h<frameHeight; h++)
-    {
-        getline(refFile, refLine, '\n');
-        stringstream currStream(currLine), refStream(refLine); 
 
-        for (int w = 0; w < frameWidth; w++)
+    // Read the samples from reference frame into the reference array
+    for(int f=0; f<N_FRAMES; f++)
+    {
+        for (int h=0; h<frameHeight; h++)
         {
-            getline(currStream, currVal, ',');
-            getline(refStream, refVal, ',');
-            reference_frame[h*frameWidth + w] = stoi(refVal);
+            getline(refFile, refLine, '\n');
+            stringstream currStream(currLine), refStream(refLine); 
+
+            for (int w = 0; w < frameWidth; w++)
+            {
+                getline(currStream, currVal, ',');
+                getline(refStream, refVal, ',');
+                reference_frame[f*frameWidth*frameHeight + h*frameWidth + w] = stoi(refVal);
+            }
         }
     }
+
     if(TRACE_POWER)
         print_timestamp((char*) "FINISH READ SAMPLES .csv");
 
@@ -277,35 +282,35 @@ int main(int argc, char *argv[])
 
     // Used for all sizeId=2 CU sizes together
     cl_mem redT_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                              nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(short), NULL, &error_1);    
+                                              N_FRAMES * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(short), NULL, &error_1);    
     cl_mem redL_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                              nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(short), NULL, &error_2);    
+                                              N_FRAMES * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(short), NULL, &error_2);    
     
     
     cl_mem refT_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                              nCTUs * ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_3);
+                                              N_FRAMES * nCTUs * ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_3);
     cl_mem refL_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                              nCTUs * ALL_stridedCompleteLeftBoundaries[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_4);
+                                              N_FRAMES * nCTUs * ALL_stridedCompleteLeftBoundaries[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_4);
 
     error = error || error_1 || error_2 || error_3 || error_4;
 
     
     cl_mem referenceFrame_memObj = clCreateBuffer(context, CL_MEM_READ_ONLY,
-                                                  FRAME_SIZE * sizeof(short), NULL, &error_1);
+                                                  N_FRAMES * FRAME_SIZE * sizeof(short), NULL, &error_1);
 
     // These memory objects hold the predicted signal and distortion after the kernel has finished
     cl_mem return_predictionSignal_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                                           nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_2); // Each CTU is composed of TOTAL_CUS_PER_CTU CUs, and each reduced CU is 8*8, and we have 12 prediction modes
+                                                           N_FRAMES * nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_2); // Each CTU is composed of TOTAL_CUS_PER_CTU CUs, and each reduced CU is 8*8, and we have 12 prediction modes
 
     cl_mem return_SATD_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_3);
+                                               N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_3);
     cl_mem return_SAD_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_4);
+                                               N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_4);
 
     error = error || error_1 || error_2 || error_3 || error_4;
 
     cl_mem return_minSadHad_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_1);
+                                               N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_1);
 
     error = error || error_1;
 
@@ -319,17 +324,17 @@ int main(int argc, char *argv[])
 
     if(TRACE_POWER)
         print_timestamp((char*) "START WRITE SAMPLES MEMOBJ");
-    for(int rep=0; rep<max(N_REPS,N_ENQUEUE); rep++){
-        error = clEnqueueWriteBuffer(command_queue, referenceFrame_memObj, CL_TRUE, 0,
-                                    FRAME_SIZE * sizeof(short), reference_frame, 0, NULL, &write_event);
-        error = clWaitForEvents(1, &write_event);
-        probe_error(error, (char*)"Error waiting for write events\n");  
-        error = clFinish(command_queue);
-        probe_error(error, (char*)"Error finishing write\n");
-        clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_START, sizeof(write_time_start), &write_time_start, NULL);
-        clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_END, sizeof(write_time_end), &write_time_end, NULL);
-        nanoSeconds += write_time_end-write_time_start;
-    }
+    
+    error = clEnqueueWriteBuffer(command_queue, referenceFrame_memObj, CL_TRUE, 0,
+                                N_FRAMES * FRAME_SIZE * sizeof(short), reference_frame, 0, NULL, &write_event);
+    error = clWaitForEvents(1, &write_event);
+    probe_error(error, (char*)"Error waiting for write events\n");  
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing write\n");
+    clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_START, sizeof(write_time_start), &write_time_start, NULL);
+    clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_END, sizeof(write_time_end), &write_time_end, NULL);
+    nanoSeconds += write_time_end-write_time_start;
+
     if(TRACE_POWER)
         print_timestamp((char*) "FINISH WRITE SAMPLES MEMOBJ");
     
@@ -365,7 +370,8 @@ int main(int argc, char *argv[])
 
     if(TRACE_POWER)
         print_timestamp((char*) "START BUILD KERNELS");
-    sprintf(buildOptions2, "-DSIZEID=%d -DTRACE_POWER=%d -DN_REPS=%d -DMAX_PERFORMANCE_DIST=%d", 2, TRACE_POWER, N_REPS, MAX_PERFORMANCE_DIST);
+
+    sprintf(buildOptions2, "-DSIZEID=%d -DTRACE_POWER=%d -DN_FRAMES=%d -DMAX_PERFORMANCE_DIST=%d", 2, TRACE_POWER, N_FRAMES, MAX_PERFORMANCE_DIST);
     error = clBuildProgram(program_sizeid2, 1, &device_id, buildOptions2, NULL, NULL);
     probe_error(error, (char*)"Error building the program with SizeId=2\n");
     // Show debugging information when the build is not successful
@@ -387,7 +393,7 @@ int main(int argc, char *argv[])
     }
 
 
-    sprintf(buildOptions1, "-DSIZEID=%d -DTRACE_POWER=%d -DN_REPS=%d -DMAX_PERFORMANCE_DIST=%d", 1, TRACE_POWER, N_REPS, MAX_PERFORMANCE_DIST);
+    sprintf(buildOptions1, "-DSIZEID=%d -DTRACE_POWER=%d -DN_FRAMES=%d -DMAX_PERFORMANCE_DIST=%d", 1, TRACE_POWER, N_FRAMES, MAX_PERFORMANCE_DIST);
     error = clBuildProgram(program_sizeid1, 1, &device_id, buildOptions1, NULL, NULL);
     probe_error(error, (char*)"Error building the program with SizeId=1\n");
     // Show debugging information when the build is not successful
@@ -409,7 +415,7 @@ int main(int argc, char *argv[])
     }
 
 
-    sprintf(buildOptions0, "-DSIZEID=%d -DTRACE_POWER=%d -DN_REPS=%d -DMAX_PERFORMANCE_DIST=%d", 0, TRACE_POWER, N_REPS, MAX_PERFORMANCE_DIST);
+    sprintf(buildOptions0, "-DSIZEID=%d -DTRACE_POWER=%d -DN_FRAMES=%d -DMAX_PERFORMANCE_DIST=%d", 0, TRACE_POWER, N_FRAMES, MAX_PERFORMANCE_DIST);
     error = clBuildProgram(program_sizeid0, 1, &device_id, buildOptions0, NULL, NULL);
     probe_error(error, (char*)"Error building the program with SizeId=0\n");
     // Show debugging information when the build is not successful
@@ -460,7 +466,7 @@ int main(int argc, char *argv[])
     int reportDistortionOnlyTarget = 1;
 
     int reportDistortionToFile = 1;
-    int targetCTU = 31;
+    int targetCTU = 16;
 
     ///////////////////////////////////////////////////////////////////////////////////////
     /////              THESE DYNAMIC ARRAYS  MUST BE FREED AFTER EXECUTION            /////
@@ -486,15 +492,15 @@ int main(int argc, char *argv[])
     // -----------------------------
     // Allocate some memory space
     // -----------------------------
-    return_reducedPredictionSignal = (short*)malloc(sizeof(short) * nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES]); // Each predicted CU has 8x8 samples
-    return_SATD = (long*) malloc(sizeof(long) * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);
-    return_SAD = (long*) malloc(sizeof(long) * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);
-    return_minSadHad = (long*) malloc(sizeof(long) * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);   
+    return_reducedPredictionSignal = (short*)malloc(sizeof(short) * N_FRAMES * nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES]); // Each predicted CU has 8x8 samples
+    return_SATD = (long*) malloc(sizeof(long) * N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);
+    return_SAD = (long*) malloc(sizeof(long) * N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);
+    return_minSadHad = (long*) malloc(sizeof(long) * N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);   
     // Unified boundaries
-    return_unified_redT = (short*) malloc(sizeof(short) * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0));
-    return_unified_redL = (short*) malloc(sizeof(short) * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0));
-    return_unified_refT = (short*) malloc(sizeof(short) * nCTUs * ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES]);
-    return_unified_refL = (short*) malloc(sizeof(short) * nCTUs * ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES]);
+    return_unified_redT = (short*) malloc(sizeof(short) * N_FRAMES * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0));
+    return_unified_redL = (short*) malloc(sizeof(short) * N_FRAMES * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0));
+    return_unified_refT = (short*) malloc(sizeof(short) * N_FRAMES * nCTUs * ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES]);
+    return_unified_refL = (short*) malloc(sizeof(short) * N_FRAMES * nCTUs * ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES]);
 
     // Debug information returned by kernel
     debug_data = (short*) malloc(sizeof(short) * nWG*itemsPerWG_upsampleDistortion*4);
@@ -549,27 +555,28 @@ int main(int argc, char *argv[])
 
     if(TRACE_POWER)
         print_timestamp((char*) "START ENQUEUE initBoundaries");
-    for(int i=0; i<N_ENQUEUE; i++){
-        error = clEnqueueNDRangeKernel(command_queue, kernel_initRefSamples, 1, NULL,
-                                    &global_item_size, &local_item_size, 0, NULL, &event);
-        probe_error(error, (char*)"Error enqueuing kernel\n");
 
-        error = clWaitForEvents(1, &event);
-        probe_error(error, (char*)"Error waiting for events\n");
+    error = clEnqueueNDRangeKernel(command_queue, kernel_initRefSamples, 1, NULL,
+                                &global_item_size, &local_item_size, 0, NULL, &event);
+    probe_error(error, (char*)"Error enqueuing kernel\n");
 
-        error = clFinish(command_queue);
-        probe_error(error, (char*)"Error finishing\n");
+    error = clWaitForEvents(1, &event);
+    probe_error(error, (char*)"Error waiting for events\n");
 
-        clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
-        clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
-        nanoSeconds = time_end-time_start;
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing\n");
 
-        execTime_reducedBoundaries += nanoSeconds;
+    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+    nanoSeconds = time_end-time_start;
 
-        nanoSeconds = 0;
-    }
+    execTime_reducedBoundaries += nanoSeconds;
+
+    nanoSeconds = 0;
+
     if(TRACE_POWER)
         print_timestamp((char*) "FINISH ENQUEUE initBoundaries");
+
     execTime += execTime_reducedBoundaries;
      
     // ----------------  EXPORT BOUNDARIES FORM UNIFIED BUFFERS
@@ -625,11 +632,12 @@ int main(int argc, char *argv[])
     global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
     local_item_size = itemsPerWG;
 
-if(TRACE_POWER)
-    print_timestamp((char*) "START ENQUEUE reducedPred");
-for(int i=0; i<N_ENQUEUE; i++){
+    if(TRACE_POWER)
+        print_timestamp((char*) "START ENQUEUE reducedPred");
+
+
     error = clEnqueueNDRangeKernel(command_queue, kernel_reducedPrediction, 1, NULL,
-                                   &global_item_size, &local_item_size, 0, NULL, &event);
+                                    &global_item_size, &local_item_size, 0, NULL, &event);
     probe_error(error, (char *)"Error enqueuing kernel\n");
 
     error = clWaitForEvents(1, &event);
@@ -644,18 +652,20 @@ for(int i=0; i<N_ENQUEUE; i++){
     nanoSeconds = time_end - time_start;
 
     execTime_reducedPrediction += nanoSeconds;
-}
-if(TRACE_POWER)
-    print_timestamp((char*) "FINISH ENQUEUE reducedPred");
-execTime += execTime_reducedPrediction;
-    
+
+
+    if(TRACE_POWER)
+        print_timestamp((char*) "FINISH ENQUEUE reducedPred");
+
+    execTime += execTime_reducedPrediction;
+        
 
     if(enableTerminalReport){
         readMemobjsIntoArray_reducedPrediction(command_queue, nCTUs, TOTAL_PREDICTION_MODES, return_predictionSignal_memObj,  return_reducedPredictionSignal, return_SAD_memObj, return_SAD);
         if(reportReducedPrediction)
             reportReducedPredictionTargetCtu_ALL(return_reducedPredictionSignal, targetCTU, frameWidth, frameHeight);
     }
-    
+        
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //
@@ -714,11 +724,12 @@ execTime += execTime_reducedPrediction;
     global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
     local_item_size = itemsPerWG;
 
-if(TRACE_POWER)
-    print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=2");
-for(int i=0; i<N_ENQUEUE; i++){
+    if(TRACE_POWER)
+        print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=2");
+
+
     error = clEnqueueNDRangeKernel(command_queue, kernel_upsampleDistortion, 1, NULL,
-                                   &global_item_size, &local_item_size, 0, NULL, &event);
+                                    &global_item_size, &local_item_size, 0, NULL, &event);
     probe_error(error, (char *)"Error enqueuing kernel\n");
 
     error = clWaitForEvents(1, &event);
@@ -733,12 +744,14 @@ for(int i=0; i<N_ENQUEUE; i++){
     nanoSeconds = time_end - time_start;
 
     execTime_upsampleDistortion_SizeId2 += nanoSeconds;
-    
-}
-if(TRACE_POWER)
-    print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=2");
-execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId2;
-    
+
+
+    if(TRACE_POWER)
+        print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=2");
+
+    execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId2;
+        
+
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //
@@ -788,11 +801,12 @@ execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId2;
     global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
     local_item_size = itemsPerWG;
 
-if(TRACE_POWER)
-    print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=1");
-for(int i=0; i<N_ENQUEUE; i++){
+    if(TRACE_POWER)
+        print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=1");
+
+
     error = clEnqueueNDRangeKernel(command_queue, kernel_upsampleDistortion, 1, NULL,
-                                   &global_item_size, &local_item_size, 0, NULL, &event);
+                                    &global_item_size, &local_item_size, 0, NULL, &event);
     probe_error(error, (char *)"Error enqueuing kernel\n");
 
     error = clWaitForEvents(1, &event);
@@ -806,10 +820,11 @@ for(int i=0; i<N_ENQUEUE; i++){
     nanoSeconds = time_end - time_start;
 
     execTime_upsampleDistortion_SizeId1 += nanoSeconds;
-}
-if(TRACE_POWER)
-    print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=1");    
-execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId1;
+
+    if(TRACE_POWER)
+        print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=1");    
+
+    execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId1;
 
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -860,11 +875,11 @@ execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId1;
     global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
     local_item_size = itemsPerWG;
 
-if(TRACE_POWER)
-    print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=0");    
-for(int i=0; i<N_ENQUEUE; i++){
+    if(TRACE_POWER)
+        print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=0");    
+        
     error = clEnqueueNDRangeKernel(command_queue, kernel_upsampleDistortion, 1, NULL,
-                                   &global_item_size, &local_item_size, 0, NULL, &event);
+                                    &global_item_size, &local_item_size, 0, NULL, &event);
     probe_error(error, (char *)"Error enqueuing kernel\n");
 
     error = clWaitForEvents(1, &event);
@@ -878,15 +893,19 @@ for(int i=0; i<N_ENQUEUE; i++){
     nanoSeconds = time_end - time_start;
 
     execTime_upsampleDistortion_SizeId0 += nanoSeconds;
-    }
+        
     if(TRACE_POWER)
         print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=0");    
+
     execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId0;
+
     if(TRACE_POWER)
         print_timestamp((char*) "START READ DISTORTION");
+
+
     // READ N TIMES TO ACCOUNT FOR N KERNEL EXECUTIONS
-    for(int rep=0; rep<max(N_REPS,N_ENQUEUE); rep++)
-        readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, return_minSadHad);
+    readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, return_minSadHad);
+
     if(TRACE_POWER)
         print_timestamp((char*) "FINISH READ DISTORTION");
 
@@ -899,12 +918,12 @@ for(int i=0; i<N_ENQUEUE; i++){
             reportAllDistortionValues_ALL(return_SAD, return_SATD, return_minSadHad, nCTUs);
     }
 
-    
+        
 
     // REPORT DISTORTION VALUES TO FILE
     if(reportDistortionToFile){
         if(reportDistortionOnlyTarget)
-            reportTargetDistortionValues_File(return_SAD, return_SATD, return_minSadHad, targetCTU, frameWidth, outputFilePreffix);
+            reportTargetDistortionValues_File(return_SAD, return_SATD, return_minSadHad, targetCTU, frameWidth, outputFilePreffix, nCTUs);
         else
             exportAllDistortionValues_File(return_SAD, return_SATD, return_minSadHad, nCTUs, frameWidth, outputFilePreffix);
     }

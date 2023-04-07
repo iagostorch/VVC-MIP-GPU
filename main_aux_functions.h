@@ -1,10 +1,8 @@
 #define MAX_PERFORMANCE_DIST 1 // When enabled, the individual values of SAD and SATD are not offloaded to the host, and the host does not read into malloc'd arrays
 
-#define TRACE_POWER 1   // When enabled the host is simplified by reducing unneccessary memory reads and prints, the timestamp of major operations is printed, the GPU operations are repeated N_REPS times
+#define TRACE_POWER 1   // When enabled the host is simplified by reducing unneccessary memory reads and prints, the timestamp of major operations is printed, the GPU operations are repeated N_FRAMES times
 
-#define N_ENQUEUE 1
-
-int N_REPS = -1; // Overwritten by sys.argv
+int N_FRAMES = -1; // Overwritten by sys.argv
 
 #include <CL/cl.h>
 #include <string.h>
@@ -471,7 +469,7 @@ void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, 
     // ALWAYS read minSadhad
 
     error =  clEnqueueReadBuffer(command_queue, return_minSadHad_memObj, CL_TRUE, 0, 
-            nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_minSadHad, 0, NULL, &read_event);
+            N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_minSadHad, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return prediction\n");
     error = clWaitForEvents(1, &read_event);
     probe_error(error, (char*)"Error waiting for read events\n");
@@ -695,63 +693,68 @@ void reportTargetDistortionValues_ALL(long int *SAD, long int *SATD, long int *m
     }
 }
 
-void reportTargetDistortionValues_File(long int *SAD, long int *SATD, long int *minSadHad, int targetCtu, int frameWidth, string outputFile){
+void reportTargetDistortionValues_File(long int *SAD, long int *SATD, long int *minSadHad, int targetCtu, int frameWidth, string outputFile, int nCTUs){
     int ctu = targetCtu;
     int ctuCols = ceil(frameWidth/128.0);
 
     FILE *distortionFile;
     string outputFileName = outputFile + ".csv";
     distortionFile = fopen(outputFileName.c_str(),"w");
-    fprintf(distortionFile,"CTU,cuSizeName,W,H,CU,X,Y,Mode,SAD,SATD,minSadHad\n");
+    fprintf(distortionFile,"POC,CTU,cuSizeName,W,H,CU,X,Y,Mode,SAD,SATD,minSadHad\n");
 
     int ctuX, ctuY, cuX, cuY;
     ctuX = 128*(targetCtu%ctuCols);
     ctuY = 128*(targetCtu/ctuCols);
-        
-    // SizeID=2
-    for(int cuSize=0; cuSize<NUM_CU_SIZES_SizeId2; cuSize++){
-        for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
-            cuX = ctuX + ALL_X_POS[cuSize][cu];
-            cuY = ctuY + ALL_Y_POS[cuSize][cu];
 
-            for(int mode=0; mode<PREDICTION_MODES_ID2*2; mode++){
-                fprintf(distortionFile, "%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
-                fprintf(distortionFile, "%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
-                fprintf(distortionFile, "%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
-                fprintf(distortionFile, "%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+    for(int frame=0; frame<N_FRAMES; frame++){
+
+        int frameStride = frame * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES];
+
+        // SizeID=2
+        for(int cuSize=0; cuSize<NUM_CU_SIZES_SizeId2; cuSize++){
+            for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
+                cuX = ctuX + ALL_X_POS[cuSize][cu];
+                cuY = ctuY + ALL_Y_POS[cuSize][cu];
+
+                for(int mode=0; mode<PREDICTION_MODES_ID2*2; mode++){
+                    fprintf(distortionFile, "%d,%d,%s,%d,%d,%d,%d,%d,%d,", frame, ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
+                    fprintf(distortionFile, "%ld,", SAD[ frameStride + ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                    fprintf(distortionFile, "%ld,", SATD[ frameStride + ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                    fprintf(distortionFile, "%ld\n", minSadHad[ frameStride + ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID2*2 + mode ]);
+                }
             }
         }
+        // SizeID=1
+        for(int offset=0; offset<NUM_CU_SIZES_SizeId1; offset++){
+            int cuSize = offset+FIRST_SizeId1;
+            for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
+                cuX = ctuX + ALL_X_POS[cuSize][cu];
+                cuY = ctuY + ALL_Y_POS[cuSize][cu];
+
+                for(int mode=0; mode<PREDICTION_MODES_ID1*2; mode++){
+                    fprintf(distortionFile, "%d,%d,%s,%d,%d,%d,%d,%d,%d,", frame,ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
+                    fprintf(distortionFile, "%ld,", SAD[ frameStride + ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                    fprintf(distortionFile, "%ld,", SATD[ frameStride + ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                    fprintf(distortionFile, "%ld\n", minSadHad[ frameStride + ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
+                }
+            }
+        }
+        // SizeID=0
+        for(int offset=0; offset<NUM_CU_SIZES_SizeId0; offset++){
+            int cuSize = offset+FIRST_SizeId0;
+            for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
+                cuX = ctuX + 4*(cu%32); //ALL_X_POS[cuSize][cu];
+                cuY = ctuY + 4*(cu/32); // ALL_Y_POS[cuSize][cu];
+
+                for(int mode=0; mode<PREDICTION_MODES_ID0*2; mode++){
+                    fprintf(distortionFile, "%d,%d,%s,%d,%d,%d,%d,%d,%d,", frame,ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
+                    fprintf(distortionFile, "%ld,", SAD[ frameStride + ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                    fprintf(distortionFile, "%ld,", SATD[ frameStride + ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                    fprintf(distortionFile, "%ld\n", minSadHad[ frameStride + ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
+                }
+            }
+        }    
     }
-    // SizeID=1
-    for(int offset=0; offset<NUM_CU_SIZES_SizeId1; offset++){
-        int cuSize = offset+FIRST_SizeId1;
-        for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
-            cuX = ctuX + ALL_X_POS[cuSize][cu];
-            cuY = ctuY + ALL_Y_POS[cuSize][cu];
-
-            for(int mode=0; mode<PREDICTION_MODES_ID1*2; mode++){
-                fprintf(distortionFile, "%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
-                fprintf(distortionFile, "%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
-                fprintf(distortionFile, "%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
-                fprintf(distortionFile, "%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID1*2 + mode ]);
-            }
-        }
-    }
-    // SizeID=0
-    for(int offset=0; offset<NUM_CU_SIZES_SizeId0; offset++){
-        int cuSize = offset+FIRST_SizeId0;
-        for(int cu=0; cu<ALL_cusPerCtu[cuSize]; cu++){
-            cuX = ctuX + 4*(cu%32); //ALL_X_POS[cuSize][cu];
-            cuY = ctuY + 4*(cu/32); // ALL_Y_POS[cuSize][cu];
-
-            for(int mode=0; mode<PREDICTION_MODES_ID0*2; mode++){
-                fprintf(distortionFile, "%d,%s,%d,%d,%d,%d,%d,%d,", ctu, translateCuSizeIdx_ALL(cuSize), ALL_widths[cuSize], ALL_heights[cuSize], cu, cuX, cuY, mode);
-                fprintf(distortionFile, "%ld,", SAD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
-                fprintf(distortionFile, "%ld,", SATD[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
-                fprintf(distortionFile, "%ld\n", minSadHad[ ctu*ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] + ALL_stridedDistortionsPerCtu[cuSize] + cu*PREDICTION_MODES_ID0*2 + mode ]);
-            }
-        }
-    }    
     fclose(distortionFile);
 }
 
@@ -760,24 +763,24 @@ void reportTimingResults(){
 
     printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n");
     printf("TIMING RESULTS (nanoseconds)\n");
-    printf("Write(%dx),%f,%.3f\n", N_REPS, writeTime, writeTime/totalGpuTime);
-    printf("InitBoundaries(%dx):  Execution,%f,%.3f\n", N_REPS, execTime_reducedBoundaries, execTime_reducedBoundaries/totalGpuTime);
+    printf("Write(%dx),%f,%.3f\n", N_FRAMES, writeTime, writeTime/totalGpuTime);
+    printf("InitBoundaries(%dx):  Execution,%f,%.3f\n", N_FRAMES, execTime_reducedBoundaries, execTime_reducedBoundaries/totalGpuTime);
     if(!TRACE_POWER){
-        printf("InitBoundaries(%dx):  Read size-reduced,%f\n", N_REPS, readTime_reducedBoundariesSize);
-        printf("InitBoundaries(%dx):  Read size-complete,%f\n", N_REPS, readTime_completeBoundariesSize);
-        printf("InitBoundaries(%dx):  Read unified-reduced,%f\n", N_REPS, readTime_reducedBoundariesUnified);
-        printf("InitBoundaries(%dx):  Read unified-complete,%f\n", N_REPS, readTime_completeBoundariesUnified);
+        printf("InitBoundaries(%dx):  Read size-reduced,%f\n", N_FRAMES, readTime_reducedBoundariesSize);
+        printf("InitBoundaries(%dx):  Read size-complete,%f\n", N_FRAMES, readTime_completeBoundariesSize);
+        printf("InitBoundaries(%dx):  Read unified-reduced,%f\n", N_FRAMES, readTime_reducedBoundariesUnified);
+        printf("InitBoundaries(%dx):  Read unified-complete,%f\n", N_FRAMES, readTime_completeBoundariesUnified);
     }
-    printf("ReducedPrediction(%dx):  Execution,%f,%.3f\n", N_REPS, execTime_reducedPrediction, execTime_reducedPrediction/totalGpuTime);
+    printf("ReducedPrediction(%dx):  Execution,%f,%.3f\n", N_FRAMES, execTime_reducedPrediction, execTime_reducedPrediction/totalGpuTime);
     if(!TRACE_POWER)
-        printf("ReducedPrediction(%dx):  Read,%f\n", N_REPS, readTime_reducedPrediction);   
+        printf("ReducedPrediction(%dx):  Read,%f\n", N_FRAMES, readTime_reducedPrediction);   
 
-    printf("UpsamplePredictionDistortion Id=2(%dx): Execution,%f,%.3f\n", N_REPS, execTime_upsampleDistortion_SizeId2, execTime_upsampleDistortion_SizeId2/totalGpuTime); 
-    printf("UpsamplePredictionDistortion Id=1(%dx): Execution,%f,%.3f\n", N_REPS, execTime_upsampleDistortion_SizeId1, execTime_upsampleDistortion_SizeId1/totalGpuTime); 
-    printf("UpsamplePredictionDistortion Id=0(%dx): Execution,%f,%.3f\n", N_REPS, execTime_upsampleDistortion_SizeId0, execTime_upsampleDistortion_SizeId0/totalGpuTime); 
-    printf("UpsamplePredictionDistortion(%dx): Execution,%f,%.3f\n", N_REPS, execTime_upsampleDistortion, execTime_upsampleDistortion/totalGpuTime); 
-    printf("UpsamplePredictionDistortion(%dx): Read,%f,%.3f\n", N_REPS, readTime_SAD, readTime_SAD/totalGpuTime); 
-    printf("W_E_R(%dx):TotalGpuTime, %f\n", N_REPS, totalGpuTime); 
+    printf("UpsamplePredictionDistortion Id=2(%dx): Execution,%f,%.3f\n", N_FRAMES, execTime_upsampleDistortion_SizeId2, execTime_upsampleDistortion_SizeId2/totalGpuTime); 
+    printf("UpsamplePredictionDistortion Id=1(%dx): Execution,%f,%.3f\n", N_FRAMES, execTime_upsampleDistortion_SizeId1, execTime_upsampleDistortion_SizeId1/totalGpuTime); 
+    printf("UpsamplePredictionDistortion Id=0(%dx): Execution,%f,%.3f\n", N_FRAMES, execTime_upsampleDistortion_SizeId0, execTime_upsampleDistortion_SizeId0/totalGpuTime); 
+    printf("UpsamplePredictionDistortion(%dx): Execution,%f,%.3f\n", N_FRAMES, execTime_upsampleDistortion, execTime_upsampleDistortion/totalGpuTime); 
+    printf("UpsamplePredictionDistortion(%dx): Read,%f,%.3f\n", N_FRAMES, readTime_SAD, readTime_SAD/totalGpuTime); 
+    printf("W_E_R(%dx):TotalGpuTime, %f\n", N_FRAMES, totalGpuTime); 
     printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n\n");    
 }
 
