@@ -316,34 +316,6 @@ int main(int argc, char *argv[])
 
     probe_error(error, (char*)"Error creating memory buffers\n");
 
-    double nanoSeconds = 0;
-    // These variabels are used to profile the time spend writing to memory objects "clEnqueueWriteBuffer"
-    cl_ulong write_time_start;
-    cl_ulong write_time_end;
-    cl_event write_event;
-
-    if(TRACE_POWER)
-        print_timestamp((char*) "START WRITE SAMPLES MEMOBJ");
-    
-    error = clEnqueueWriteBuffer(command_queue, referenceFrame_memObj, CL_TRUE, 0,
-                                N_FRAMES * FRAME_SIZE * sizeof(short), reference_frame, 0, NULL, &write_event);
-    error = clWaitForEvents(1, &write_event);
-    probe_error(error, (char*)"Error waiting for write events\n");  
-    error = clFinish(command_queue);
-    probe_error(error, (char*)"Error finishing write\n");
-    clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_START, sizeof(write_time_start), &write_time_start, NULL);
-    clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_END, sizeof(write_time_end), &write_time_end, NULL);
-    nanoSeconds += write_time_end-write_time_start;
-
-    if(TRACE_POWER)
-        print_timestamp((char*) "FINISH WRITE SAMPLES MEMOBJ");
-    
-
-    writeTime = nanoSeconds;
-    nanoSeconds = 0.0;
-
-    probe_error(error, (char*)"Error copying data from memory to buffers LEGACY\n");
-
     /////////////////////////////////////////////////////////////////////////////////////////////////
     /////       CREATE A PROGRAM (OBJECT) BASED ON .cl FILE AND BUILD IT TO TARGET DEVICE       /////
     /////         CREATE A KERNEL BY ASSIGNING A NAME FOR THE RECENTLY COMPILED PROGRAM         /////
@@ -437,6 +409,41 @@ int main(int argc, char *argv[])
     }
     if(TRACE_POWER)
         print_timestamp((char*) "FINISH BUILD KERNELS");
+
+
+    ////////////////////////////////////////////////////////////////
+    /////                                                      /////
+    /////       WRITE REFERENCE SAMPLES INTO GPU MEMORY        /////
+    /////                                                      /////
+    ////////////////////////////////////////////////////////////////
+
+    double nanoSeconds = 0;
+    // These variabels are used to profile the time spend writing to memory objects "clEnqueueWriteBuffer"
+    cl_ulong write_time_start;
+    cl_ulong write_time_end;
+    cl_event write_event;
+
+    if(TRACE_POWER)
+        print_timestamp((char*) "START WRITE SAMPLES MEMOBJ");
+    
+    error = clEnqueueWriteBuffer(command_queue, referenceFrame_memObj, CL_TRUE, 0,
+                                N_FRAMES * FRAME_SIZE * sizeof(short), reference_frame, 0, NULL, &write_event);
+    error = clWaitForEvents(1, &write_event);
+    probe_error(error, (char*)"Error waiting for write events\n");  
+    error = clFinish(command_queue);
+    probe_error(error, (char*)"Error finishing write\n");
+    clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_START, sizeof(write_time_start), &write_time_start, NULL);
+    clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_END, sizeof(write_time_end), &write_time_end, NULL);
+    nanoSeconds += write_time_end-write_time_start;
+
+    if(TRACE_POWER)
+        print_timestamp((char*) "FINISH WRITE SAMPLES MEMOBJ");
+    
+
+    writeTime = nanoSeconds;
+    nanoSeconds = 0.0;
+
+    probe_error(error, (char*)"Error copying data from memory to buffers LEGACY\n");
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
     /////                  VARIABLES SHARED BETWEEN THE EXECUTION OF ALL KERNELS                /////
