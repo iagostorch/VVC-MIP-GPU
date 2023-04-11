@@ -13,6 +13,12 @@
 // Each WG will process one CTU composed of a single CU size
 // It works for all blocks with SizeId=2 and all alignments
 __kernel void initBoundaries(__global short *referenceFrame, const int frameWidth, const int frameHeight, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
+    // Each of these hold one row/columns of samples for the entire CTU
+    __local short int refT[128], refL[128]; 
+    // These buffers are used as temporary storage between computing reduced boundaries and moving them into global memory
+    __local short int bufferGlobalRedT[2048], bufferGlobalRedL[2048]; // Maximum value. 1024 CUs 4x4 with reducedBoundary=2 each
+
+    __local short int bufferGlobalRefT[MAX_CU_ROWS_PER_CTU][128], bufferGlobalRefL[MAX_CU_COLUMNS_PER_CTU][128];
 
     for(int rep=0; rep<N_FRAMES; rep++){
         int gid = get_global_id(0);
@@ -38,12 +44,6 @@ __kernel void initBoundaries(__global short *referenceFrame, const int frameWidt
 
 
         char reducedBoundarySize = ALL_reducedBoundarySizes[cuSizeIdx];
-        // Each of these hold one row/columns of samples for the entire CTU
-        __local short int refT[128], refL[128]; 
-        // These buffers are used as temporary storage between computing reduced boundaries and moving them into global memory
-        __local short int bufferGlobalRedT[2048], bufferGlobalRedL[2048]; // Maximum value. 1024 CUs 4x4 with reducedBoundary=2 each
-
-        __local short int bufferGlobalRefT[MAX_CU_ROWS_PER_CTU][128], bufferGlobalRefL[MAX_CU_COLUMNS_PER_CTU][128];
 
         // These are used to compute the reduced boundaries
         short downsamplingFactor;
@@ -345,6 +345,15 @@ __kernel void initBoundaries(__global short *referenceFrame, const int frameWidt
 // The prediction of all prediction modes is stored in global memory and returned to the host
 // Each WG will process one CTU composed of a single CU size
 __kernel void MIP_ReducedPred(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL){
+    
+    // This buffer stores all predicted CUs inside the current CTU, with a single prediction mode
+    // Each CU is processed by 64 workitems, where each workitem conducts the prediction of a single sample
+    // When necessary, each workitem will process more than one CU
+    // After all CUs are predicted with a single prediction mode, the buffer is moved into global memory and the next prediction mode is tested
+    __local short reducedPredictedCtu[ 16384 ]; // When reducedPred=8x8 there are at most 256 CUs per CTU (256*8*8=16384). When reducedPred=4x4 there at exactly 1024 CUs (1024*4*4=16384)
+
+    __local short upsampledPredictedCtu[128*128]; // used to store the entire CTU after upsampling, before computing distortion
+
     for(int rep=0; rep<N_FRAMES; rep++){
         // Variables for indexing work items and work groups
         int gid = get_global_id(0);
@@ -371,14 +380,6 @@ __kernel void MIP_ReducedPred(__global short *reducedPrediction, const int frame
 
         int boundaryStrideForCtu = ALL_TOTAL_CUS_SizeId12_PER_CTU*BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU*BOUNDARY_SIZE_Id0;
         int currCtuBoundariesIdx = ctuIdx * boundaryStrideForCtu;
-
-        // This buffer stores all predicted CUs inside the current CTU, with a single prediction mode
-        // Each CU is processed by 64 workitems, where each workitem conducts the prediction of a single sample
-        // When necessary, each workitem will process more than one CU
-        // After all CUs are predicted with a single prediction mode, the buffer is moved into global memory and the next prediction mode is tested
-        __local short reducedPredictedCtu[ 16384 ]; // When reducedPred=8x8 there are at most 256 CUs per CTU (256*8*8=16384). When reducedPred=4x4 there at exactly 1024 CUs (1024*4*4=16384)
-
-        __local short upsampledPredictedCtu[128*128]; // used to store the entire CTU after upsampling, before computing distortion
 
         int totalPredictionModes = ALL_numPredModes[cuSizeIdx] + TEST_TRANSPOSED_MODES*ALL_numPredModes[cuSizeIdx];
         const char reducedBoundarySize = ALL_reducedBoundarySizes[cuSizeIdx];
@@ -544,7 +545,35 @@ __kernel void upsampleDistortion(__global short *reducedPrediction, const int fr
  __global long *SAD, __global long *SATD,
 #endif
                                                                                                                      __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL){
-    
+
+    // During upsampling, 128/32/16 workitems are assigned to conduct the processing of each CU (i.e., with wgSize=256 we process 2/8/16 CUs at once for SizeId=2/1/0)
+    // We fetch the boundaries of these CUs depending on wgSize, upsample these CUs with all prediction modes to reuse the boundaries without extra memory access
+    // Compute the distortion for these CUs with each prediction mode, then process the next CUs
+    __local int localSAD[256], localSATD[256];
+
+#if SIZEID==2
+    __local short localReducedPrediction[2][REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2]; // At most, 2/8/16 CUs are processed simultaneously
+    __local short localUpsampledPrediction[2][64*64]; // at most 2 CUs are predicted simultaneously, with a maximum dimension of 64x64
+    __local short localOriginalSamples[2][64*64];   
+    __local int localSadEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId2][PREDICTION_MODES_ID2*2];
+    __local int localSatdEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId2][PREDICTION_MODES_ID2*2];
+    __local int refT[2*64], refL[2*64]; // Complete boundaries of the CUs being processed
+#elif SIZEID==1
+    __local short localReducedPrediction[8][REDUCED_PRED_SIZE_Id1*REDUCED_PRED_SIZE_Id1]; // At most, 2/8/16 CUs are processed simultaneously
+    __local short localUpsampledPrediction[8][32*4]; // at most 8 CUs are predicted simultaneously, with a maximum dimension of 32x4 or 4x32
+    __local short localOriginalSamples[8][32*4];   
+    __local int localSadEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId1][PREDICTION_MODES_ID1*2];
+    __local int localSatdEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId1][PREDICTION_MODES_ID1*2];
+    __local int refT[8*32], refL[8*32]; // Complete boundaries of the CUs being processed
+#else // SIZEID==0
+    __local short localReducedPrediction[16][REDUCED_PRED_SIZE_Id0*REDUCED_PRED_SIZE_Id0]; // At most, 2/8/16 CUs are processed simultaneously
+    __local short localUpsampledPrediction[16][4*4]; // at most 16 CUs are predicted simultaneously, with a maximum dimension of 4x4
+    __local short localOriginalSamples[16][4*4];   
+    __local int localSadEntireCtu[128][PREDICTION_MODES_ID0*2];
+    __local int localSatdEntireCtu[128][PREDICTION_MODES_ID0*2];
+    __local int refT[2], refL[2]; // These are not  relevant for SizeId=0. Declared here to avoid errors
+#endif
+
 for(int rep=0; rep<N_FRAMES; rep++){
 
 
@@ -633,35 +662,15 @@ for(int rep=0; rep<N_FRAMES; rep++){
         // During upsampling, 128/32/16 workitems are assigned to conduct the processing of each CU (i.e., with wgSize=256 we process 2/8/16 CUs at once for SizeId=2/1/0)
         // We fetch the boundaries of these CUs depending on wgSize, upsample these CUs with all prediction modes to reuse the boundaries without extra memory access
         // Compute the distortion for these CUs with each prediction mode, then process the next CUs
-        __local int localSAD[256], localSATD[256];
-
     #if SIZEID==2
-        __local short localReducedPrediction[2][REDUCED_PRED_SIZE_Id2*REDUCED_PRED_SIZE_Id2]; // At most, 2/8/16 CUs are processed simultaneously
-        __local short localUpsampledPrediction[2][64*64]; // at most 2 CUs are predicted simultaneously, with a maximum dimension of 64x64
-        __local short localOriginalSamples[2][64*64];   
-        __local int localSadEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId2][PREDICTION_MODES_ID2*2];
-        __local int localSatdEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId2][PREDICTION_MODES_ID2*2];
-        __local int refT[2*64], refL[2*64]; // Complete boundaries of the CUs being processed
         // Specifically for CUs 4x4 with SizeId=0. For other sizes it is zero
         const int cuIdxOffset = 0;
         const int const offsetInCtuY = 0;
     #elif SIZEID==1
-        __local short localReducedPrediction[8][REDUCED_PRED_SIZE_Id1*REDUCED_PRED_SIZE_Id1]; // At most, 2/8/16 CUs are processed simultaneously
-        __local short localUpsampledPrediction[8][32*4]; // at most 8 CUs are predicted simultaneously, with a maximum dimension of 32x4 or 4x32
-        __local short localOriginalSamples[8][32*4];   
-        __local int localSadEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId1][PREDICTION_MODES_ID1*2];
-        __local int localSatdEntireCtu[ALL_MAX_CUS_PER_CTU_SizeId1][PREDICTION_MODES_ID1*2];
-        __local int refT[8*32], refL[8*32]; // Complete boundaries of the CUs being processed
         // Specifically for CUs 4x4 with SizeId=0. For other sizes it is zero
         const int cuIdxOffset = 0;
         const int const offsetInCtuY = 0;
     #else // SIZEID==0
-        __local short localReducedPrediction[16][REDUCED_PRED_SIZE_Id0*REDUCED_PRED_SIZE_Id0]; // At most, 2/8/16 CUs are processed simultaneously
-        __local short localUpsampledPrediction[16][4*4]; // at most 16 CUs are predicted simultaneously, with a maximum dimension of 4x4
-        __local short localOriginalSamples[16][4*4];   
-        __local int localSadEntireCtu[128][PREDICTION_MODES_ID0*2];
-        __local int localSatdEntireCtu[128][PREDICTION_MODES_ID0*2];
-        __local int refT[2], refL[2]; // These are not  relevant for SizeId=0. Declared here to avoid errors
         // Specifically for CUs 4x4 with SizeId=0. For other sizes it is zero
         const int cuIdxOffset = 128 * (wg%8); // Each WG processes 12.5% of the CTU, therefore we must correct the first sample where each WG start
         const int offsetInCtuY = 4*(cuIdxOffset/cuColumnsPerCtu);
