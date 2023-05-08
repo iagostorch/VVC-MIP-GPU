@@ -436,7 +436,7 @@ void readMemobjsIntoArray_reducedPrediction(cl_command_queue command_queue, int 
     readTime_reducedPrediction = nanoSeconds;
 }
 
-void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, int nPredictionModes, cl_mem return_SAD_memObj, long *return_SAD, cl_mem return_SATD_memObj, long *return_SATD, cl_mem return_minSadHad_memObj, long *return_minSadHad){
+void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, int nPredictionModes, cl_mem return_SAD_memObj, long *return_SAD, cl_mem return_SATD_memObj, long *return_SATD, cl_mem return_minSadHad_memObj, long *return_minSadHad, int currFrame){
     int error;
     double nanoSeconds = 0.0;
     cl_ulong read_time_start, read_time_end;
@@ -468,18 +468,19 @@ void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, 
     
     // ALWAYS read minSadhad
 
-    error =  clEnqueueReadBuffer(command_queue, return_minSadHad_memObj, CL_TRUE, 0, 
-            N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_minSadHad, 0, NULL, &read_event);
+    error =  clEnqueueReadBuffer(command_queue, return_minSadHad_memObj, CL_FALSE, currFrame * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), 
+            // nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_minSadHad + currFrame * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), 0, NULL, &read_event);
+            nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_minSadHad, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return prediction\n");
-    error = clWaitForEvents(1, &read_event);
-    probe_error(error, (char*)"Error waiting for read events\n");
-    error = clFinish(command_queue);
-    probe_error(error, (char*)"Error finishing read\n");
-    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
-    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
-    nanoSeconds += read_time_end-read_time_start;
+    //error = clWaitForEvents(1, &read_event);
+    //probe_error(error, (char*)"Error waiting for read events\n");
+    //error = clFinish(command_queue);
+    //probe_error(error, (char*)"Error finishing read\n");
+    //clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    //clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    //nanoSeconds += read_time_end-read_time_start;
 
-    readTime_SAD += nanoSeconds;
+    //readTime_SAD += nanoSeconds;
 }
 
 // Read data from memory objects into arrays

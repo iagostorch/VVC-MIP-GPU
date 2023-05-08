@@ -12,7 +12,7 @@
 // This kernel is used to fetch the reduced boundaries for all the blocks
 // Each WG will process one CTU composed of a single CU size
 // It works for all blocks with SizeId=2 and all alignments
-__kernel void initBoundaries(__global short *referenceFrame, const int frameWidth, const int frameHeight, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL){
+__kernel void initBoundaries(__global short *referenceFrame, const int frameWidth, const int frameHeight, __global short *unified_redT, __global short *unified_redL, __global short *unified_refT, __global short *unified_refL, const int rep){
     // Each of these hold one row/columns of samples for the entire CTU
     __local short int refT[128], refL[128]; 
     // These buffers are used as temporary storage between computing reduced boundaries and moving them into global memory
@@ -20,7 +20,7 @@ __kernel void initBoundaries(__global short *referenceFrame, const int frameWidt
 
     __local short int bufferGlobalRefT[MAX_CU_ROWS_PER_CTU][128], bufferGlobalRefL[MAX_CU_COLUMNS_PER_CTU][128];
 
-    for(int rep=0; rep<N_FRAMES; rep++){
+//    for(int rep=0; rep<N_FRAMES; rep++){
         int gid = get_global_id(0);
         int wg = get_group_id(0);
         int lid = get_local_id(0);
@@ -338,13 +338,13 @@ __kernel void initBoundaries(__global short *referenceFrame, const int frameWidt
                     unified_refL[frameStride + ctuIdx*ALL_stridedCompleteLeftBoundaries[ALL_NUM_CU_SIZES] + ALL_stridedCompleteLeftBoundaries[cuSizeIdx] + currCuRow*cuColumnsPerCtu*cuHeight + currCuCol*cuHeight + currSample] = bufferGlobalRefL[currCuCol][currCuRow*cuHeight + currSample];
             }
         }
-    }
+    //}
 }
 
 // This kernel is used to obtain the reduced prediction with all prediction modes
 // The prediction of all prediction modes is stored in global memory and returned to the host
 // Each WG will process one CTU composed of a single CU size
-__kernel void MIP_ReducedPred(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL){
+__kernel void MIP_ReducedPred(__global short *reducedPrediction, const int frameWidth, const int frameHeight, __global short* originalSamples, __global short *unified_redT, __global short *unified_redL, const int rep){
     
     // This buffer stores all predicted CUs inside the current CTU, with a single prediction mode
     // Each CU is processed by 64 workitems, where each workitem conducts the prediction of a single sample
@@ -354,7 +354,7 @@ __kernel void MIP_ReducedPred(__global short *reducedPrediction, const int frame
 
     __local short upsampledPredictedCtu[128*128]; // used to store the entire CTU after upsampling, before computing distortion
 
-    for(int rep=0; rep<N_FRAMES; rep++){
+    //for(int rep=0; rep<N_FRAMES; rep++){
         // Variables for indexing work items and work groups
         int gid = get_global_id(0);
         int wg = get_group_id(0);
@@ -537,14 +537,14 @@ __kernel void MIP_ReducedPred(__global short *reducedPrediction, const int frame
                 barrier(CLK_LOCAL_MEM_FENCE); // Wait until all predicted samples are moved. The next iteration overwrites the local prediction buffer
             }
         } // End of current mode
-    }
+   // }
 }
 
 __kernel void upsampleDistortion(__global short *reducedPrediction, const int frameWidth, const int frameHeight,
 #if ! MAX_PERFORMANCE_DIST
  __global long *SAD, __global long *SATD,
 #endif
-                                                                                                                     __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL){
+                                                                                                                     __global long *minSadHad, __global short* originalSamples, __global short *unified_refT, __global short *unified_refL, const int rep){
 
     // During upsampling, 128/32/16 workitems are assigned to conduct the processing of each CU (i.e., with wgSize=256 we process 2/8/16 CUs at once for SizeId=2/1/0)
     // We fetch the boundaries of these CUs depending on wgSize, upsample these CUs with all prediction modes to reuse the boundaries without extra memory access
@@ -574,7 +574,7 @@ __kernel void upsampleDistortion(__global short *reducedPrediction, const int fr
     __local int refT[2], refL[2]; // These are not  relevant for SizeId=0. Declared here to avoid errors
 #endif
 
-for(int rep=0; rep<N_FRAMES; rep++){
+//for(int rep=0; rep<N_FRAMES; rep++){
 
 
     #if SIZEID==2
@@ -1164,5 +1164,5 @@ for(int rep=0; rep<N_FRAMES; rep++){
                 }
             } // Close for nPasses
         } // Close if lid < const
-    } // Close for N_FRAMES
+   // } // Close for N_FRAMES
 } // Close kernel

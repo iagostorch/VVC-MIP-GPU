@@ -206,7 +206,24 @@ int main(int argc, char *argv[])
     // Create a command queue
     // Profiling enabled to measure execution time. 
     // TODO: Remove this profiling when perform actual computation, it may slowdown the processing (for experiments and etc)
-    cl_command_queue command_queue = clCreateCommandQueue(context, device_id, CL_QUEUE_PROFILING_ENABLE, &error);
+
+    // "common" queue is shared for writing and kernels that deal with all SizeIds.
+    // "idX" queues deal with distortion of specific SizeIds. 
+    // "read" queue deals with reading distortion WITHOUT BLOCKING
+
+    cl_command_queue command_queue_common = clCreateCommandQueue(context, device_id, CL_QUEUE_PROFILING_ENABLE, &error);
+    probe_error(error, (char*)"Error creating command queue\n");
+
+    cl_command_queue command_queue_id2 = clCreateCommandQueue(context, device_id, CL_QUEUE_PROFILING_ENABLE, &error);
+    probe_error(error, (char*)"Error creating command queue\n");
+
+    cl_command_queue command_queue_id1 = clCreateCommandQueue(context, device_id, CL_QUEUE_PROFILING_ENABLE, &error);
+    probe_error(error, (char*)"Error creating command queue\n");
+
+    cl_command_queue command_queue_id0 = clCreateCommandQueue(context, device_id, CL_QUEUE_PROFILING_ENABLE, &error);
+    probe_error(error, (char*)"Error creating command queue\n");
+
+    cl_command_queue command_queue_read = clCreateCommandQueue(context, device_id, CL_QUEUE_PROFILING_ENABLE, &error);
     probe_error(error, (char*)"Error creating command queue\n");
 
     // TODO: This should be an input parameter
@@ -426,11 +443,11 @@ int main(int argc, char *argv[])
     if(TRACE_POWER)
         print_timestamp((char*) "START WRITE SAMPLES MEMOBJ");
     
-    error = clEnqueueWriteBuffer(command_queue, referenceFrame_memObj, CL_TRUE, 0,
+    error = clEnqueueWriteBuffer(command_queue_common, referenceFrame_memObj, CL_TRUE, 0,
                                 N_FRAMES * FRAME_SIZE * sizeof(short), reference_frame, 0, NULL, &write_event);
-    error = clWaitForEvents(1, &write_event);
-    probe_error(error, (char*)"Error waiting for write events\n");  
-    error = clFinish(command_queue);
+    // error = clWaitForEvents(1, &write_event);
+    // probe_error(error, (char*)"Error waiting for write events\n");  
+    error = clFinish(command_queue_common);
     probe_error(error, (char*)"Error finishing write\n");
     clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_START, sizeof(write_time_start), &write_time_start, NULL);
     clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_END, sizeof(write_time_end), &write_time_end, NULL);
@@ -519,403 +536,432 @@ int main(int argc, char *argv[])
     error = error_1;
     probe_error(error,(char*)"Error creating memory object for debugging information\n");
 
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    //
-    //          FIRST WE MUST OBTAIN THE REDUCED BOUNDARIES
-    //
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-    itemsPerWG = itemsPerWG_obtainReducedBoundaries;
-
-    // Create kernel
-    kernel_initRefSamples = clCreateKernel(program_sizeid2, "initBoundaries", &error);
-    probe_error(error, (char*)"Error creating initBoundaries kernel\n"); 
-    printf("Performing initBoundaries kernel...\n");
-
-    // Query for work groups sizes information
-    error = clGetKernelWorkGroupInfo(kernel_initRefSamples, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
-    error |= clGetKernelWorkGroupInfo(kernel_initRefSamples, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
-    error |= clGetKernelWorkGroupInfo(kernel_initRefSamples, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
-    error |= clGetKernelWorkGroupInfo(kernel_initRefSamples, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
-
-    probe_error(error, (char*)"Error querying preferred or maximum work group size\n");
-    //cout << "-- Preferred WG size multiple " << preferred_size << endl;
-    //cout << "-- Maximum WG size " << maximum_size << endl;
-
-    // Set the arguments of the kernel initBoundaries
-    error_1 = clSetKernelArg(kernel_initRefSamples, 0, sizeof(cl_mem), (void *)&referenceFrame_memObj);
-    error_1 |= clSetKernelArg(kernel_initRefSamples, 1, sizeof(cl_int), (void *)&frameWidth);
-    error_1 |= clSetKernelArg(kernel_initRefSamples, 2, sizeof(cl_int), (void *)&frameHeight);
-    // Combined reduced and complete boundaries for all CU
-    error_1 |= clSetKernelArg(kernel_initRefSamples, 3, sizeof(cl_mem), (void *)&redT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_initRefSamples, 4, sizeof(cl_mem), (void *)&redL_all_memObj);
-    error_1 |= clSetKernelArg(kernel_initRefSamples, 5, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_initRefSamples, 6, sizeof(cl_mem), (void *)&refL_all_memObj);
+    for(int currFrame=0; currFrame < N_FRAMES; currFrame++){
 
 
-    probe_error(error_1, (char*)"Error setting arguments for the kernel\n");
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        //
+        //          FIRST WE MUST OBTAIN THE REDUCED BOUNDARIES
+        //
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-    // Execute the OpenCL kernel on the list
-    // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
-    global_item_size = nWG*itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
-    local_item_size = itemsPerWG;
+        itemsPerWG = itemsPerWG_obtainReducedBoundaries;
 
-    if(TRACE_POWER)
-        print_timestamp((char*) "START ENQUEUE initBoundaries");
+        // Create kernel
+        kernel_initRefSamples = clCreateKernel(program_sizeid2, "initBoundaries", &error);
+        probe_error(error, (char*)"Error creating initBoundaries kernel\n"); 
+        printf("Performing initBoundaries kernel...\n");
 
-    error = clEnqueueNDRangeKernel(command_queue, kernel_initRefSamples, 1, NULL,
-                                &global_item_size, &local_item_size, 0, NULL, &event);
-    probe_error(error, (char*)"Error enqueuing kernel\n");
+        // Query for work groups sizes information
+        error = clGetKernelWorkGroupInfo(kernel_initRefSamples, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_initRefSamples, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
+        error |= clGetKernelWorkGroupInfo(kernel_initRefSamples, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_initRefSamples, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
 
-    error = clWaitForEvents(1, &event);
-    probe_error(error, (char*)"Error waiting for events\n");
+        probe_error(error, (char*)"Error querying preferred or maximum work group size\n");
+        //cout << "-- Preferred WG size multiple " << preferred_size << endl;
+        //cout << "-- Maximum WG size " << maximum_size << endl;
 
-    error = clFinish(command_queue);
-    probe_error(error, (char*)"Error finishing\n");
+        // Set the arguments of the kernel initBoundaries
+        error_1 = clSetKernelArg(kernel_initRefSamples, 0, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+        error_1 |= clSetKernelArg(kernel_initRefSamples, 1, sizeof(cl_int), (void *)&frameWidth);
+        error_1 |= clSetKernelArg(kernel_initRefSamples, 2, sizeof(cl_int), (void *)&frameHeight);
+        // Combined reduced and complete boundaries for all CU
+        error_1 |= clSetKernelArg(kernel_initRefSamples, 3, sizeof(cl_mem), (void *)&redT_all_memObj);
+        error_1 |= clSetKernelArg(kernel_initRefSamples, 4, sizeof(cl_mem), (void *)&redL_all_memObj);
+        error_1 |= clSetKernelArg(kernel_initRefSamples, 5, sizeof(cl_mem), (void *)&refT_all_memObj);
+        error_1 |= clSetKernelArg(kernel_initRefSamples, 6, sizeof(cl_mem), (void *)&refL_all_memObj);
+        error_1 |= clSetKernelArg(kernel_initRefSamples, 7, sizeof(cl_int), (void *)&currFrame);
 
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
-    nanoSeconds = time_end-time_start;
 
-    execTime_reducedBoundaries += nanoSeconds;
+        probe_error(error_1, (char*)"Error setting arguments for the kernel\n");
 
-    nanoSeconds = 0;
+        // Execute the OpenCL kernel on the list
+        // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
+        global_item_size = nWG*itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
+        local_item_size = itemsPerWG;
 
-    if(TRACE_POWER)
-        print_timestamp((char*) "FINISH ENQUEUE initBoundaries");
+        if(TRACE_POWER)
+            print_timestamp((char*) "START ENQUEUE initBoundaries");
 
-    execTime += execTime_reducedBoundaries;
-     
-    // ----------------  EXPORT BOUNDARIES FORM UNIFIED BUFFERS
-    //
-    if(enableTerminalReport){
-        // Read affine results from memory objects into host arrays
-        readMemobjsIntoArray_UnifiedBoundaries(command_queue, nCTUs, redT_all_memObj, refT_all_memObj, return_unified_redT, return_unified_refT, redL_all_memObj, refL_all_memObj, return_unified_redL, return_unified_refL);
-       
-        if(reportReducedBoundaries)
-            reportReducedBoundariesTargetCtu_ALL(return_unified_redT, return_unified_redL, targetCTU, frameWidth, frameHeight);
-        if(reportCompleteBoundaries)
-            reportCompleteBoundariesTargetCtu_ALL(return_unified_refT, return_unified_refL, targetCTU, frameWidth, frameHeight);
-    }
+        error = clEnqueueNDRangeKernel(command_queue_common, kernel_initRefSamples, 1, NULL,
+                                    &global_item_size, &local_item_size, 0, NULL, &event);
+        probe_error(error, (char*)"Error enqueuing kernel\n");
+
+        //error = clWaitForEvents(1, &event);
+        //probe_error(error, (char*)"Error waiting for events\n");
+
+        //error = clFinish(command_queue_common);
+        //probe_error(error, (char*)"Error finishing\n");
+
+        //clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+        //clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+        //nanoSeconds = time_end-time_start;
+
+        //execTime_reducedBoundaries += nanoSeconds;
+
+        // nanoSeconds = 0;
+
+        if(TRACE_POWER)
+            print_timestamp((char*) "FINISH ENQUEUE initBoundaries");
+
+        // execTime += execTime_reducedBoundaries;
+        
+        // ----------------  EXPORT BOUNDARIES FORM UNIFIED BUFFERS
+        //
+        if(enableTerminalReport){
+            // Read affine results from memory objects into host arrays
+            readMemobjsIntoArray_UnifiedBoundaries(command_queue_common, nCTUs, redT_all_memObj, refT_all_memObj, return_unified_redT, return_unified_refT, redL_all_memObj, refL_all_memObj, return_unified_redL, return_unified_refL);
+        
+            if(reportReducedBoundaries)
+                reportReducedBoundariesTargetCtu_ALL(return_unified_redT, return_unified_redL, targetCTU, frameWidth, frameHeight);
+            if(reportCompleteBoundaries)
+                reportCompleteBoundariesTargetCtu_ALL(return_unified_refT, return_unified_refL, targetCTU, frameWidth, frameHeight);
+        }
+        
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        //
+        //          NOW WE OBTAIN THE REDUCED PREDICTION FOR ALL CU SIZES AND PREDICTION MODES
+        //
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+        itemsPerWG = itemsPerWG_obtainReducedPrediction;
+
+        // Create kernel
+        kernel_reducedPrediction = clCreateKernel(program_sizeid2, "MIP_ReducedPred", &error);
+        probe_error(error, (char *)"Error creating MIP_ReducedPred kernel\n");
+        printf("Performing MIP_ReducedPred kernel...\n");
+
+        // Query for work groups sizes information
+        error = clGetKernelWorkGroupInfo(kernel_reducedPrediction, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_reducedPrediction, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
+        error |= clGetKernelWorkGroupInfo(kernel_reducedPrediction, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_reducedPrediction, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
+
+        probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
+        //cout << "-- Preferred WG size multiple " << preferred_size << endl;
+        //cout << "-- Maximum WG size " << maximum_size << endl;
+
+        // Set the arguments of the MIP_ReducedPred kernel
+        error_1  = clSetKernelArg(kernel_reducedPrediction, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
+        error_1 |= clSetKernelArg(kernel_reducedPrediction, 1, sizeof(cl_int), (void *)&frameWidth);
+        error_1 |= clSetKernelArg(kernel_reducedPrediction, 2, sizeof(cl_int), (void *)&frameHeight);
+        error_1 |= clSetKernelArg(kernel_reducedPrediction, 3, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+        // Unified reduced boundariers
+        error_1 |= clSetKernelArg(kernel_reducedPrediction, 4, sizeof(cl_mem), (void *)&redT_all_memObj);
+        error_1 |= clSetKernelArg(kernel_reducedPrediction, 5, sizeof(cl_mem), (void *)&redL_all_memObj);
+        error_1 |= clSetKernelArg(kernel_reducedPrediction, 6, sizeof(cl_int), (void *)&currFrame);
+
+        probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
+
+        // Execute the OpenCL kernel on the list
+        // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
+        global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
+        local_item_size = itemsPerWG;
+
+        if(TRACE_POWER)
+            print_timestamp((char*) "START ENQUEUE reducedPred");
+
+
+        error = clEnqueueNDRangeKernel(command_queue_common, kernel_reducedPrediction, 1, NULL,
+                                        &global_item_size, &local_item_size, 0, NULL, &event);
+        probe_error(error, (char *)"Error enqueuing kernel\n");
+
+        //error = clWaitForEvents(1, &event);
+        //probe_error(error, (char *)"Error waiting for events\n");
+
+        //error = clFinish(command_queue_common);
+        //probe_error(error, (char *)"Error finishing\n");
+
+
+        //clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+        //clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+        //nanoSeconds = time_end - time_start;
+
+        //execTime_reducedPrediction += nanoSeconds;
+
+
+        if(TRACE_POWER)
+            print_timestamp((char*) "FINISH ENQUEUE reducedPred");
+
+        // execTime += execTime_reducedPrediction;
+            
+
+        if(enableTerminalReport){
+            readMemobjsIntoArray_reducedPrediction(command_queue_common, nCTUs, TOTAL_PREDICTION_MODES, return_predictionSignal_memObj,  return_reducedPredictionSignal, return_SAD_memObj, return_SAD);
+            if(reportReducedPrediction)
+                reportReducedPredictionTargetCtu_ALL(return_reducedPredictionSignal, targetCTU, frameWidth, frameHeight);
+        }
+            
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        //
+        //          FINALLY, UPSAMPLE THE REDUCED PREDICTION AND COMPUTE THE DISTOTION
+        //
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+        itemsPerWG = itemsPerWG_upsampleDistortion;
+
+        // We must wait until all CUs are predicted to compute the distortion
+        // Since we use three queues for different SizeIds, an explicit synchronization is required
+        error = clFinish(command_queue_common);
+        probe_error(error, (char *)"Error finishing\n");
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        //
+        //          START WITH CUs OF SizeID=2
+
+        // Create kernel
+        kernel_upsampleDistortion = clCreateKernel(program_sizeid2, "upsampleDistortion", &error);
+        probe_error(error, (char *)"Error creating upsampleDistortion kernel\n");
+        printf("Performing upsampleDistortion kernel...\n");
+
+        // Query for work groups sizes information
+        error = clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
+        error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
+
+        probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
+        //cout << "-- Preferred WG size multiple " << preferred_size << endl;
+        //cout << "-- Maximum WG size " << maximum_size << endl;
+
+        // Set the arguments of the upsampleDistortion kernel
+        error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
+        // Reference samples and final distortion
+    #if MAX_PERFORMANCE_DIST // Only one distortion value is returned
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+        // Unified boundariers
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&refT_all_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&refL_all_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_int), (void *)&currFrame);
+    #else
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_SAD_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&return_SATD_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+        // Unified boundariers
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&refT_all_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refL_all_memObj);
+    #endif
+        
+        probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
+
+        // Execute the OpenCL kernel on the list
+        // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
+        nWG = nCTUs*NUM_CU_SIZES_SizeId2;
+        global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
+        local_item_size = itemsPerWG;
+
+        if(TRACE_POWER)
+            print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=2");
+
+
+        error = clEnqueueNDRangeKernel(command_queue_id2, kernel_upsampleDistortion, 1, NULL,
+                                        &global_item_size, &local_item_size, 0, NULL, &event);
+        probe_error(error, (char *)"Error enqueuing kernel\n");
+
+        //error = clWaitForEvents(1, &event);
+        //probe_error(error, (char *)"Error waiting for events\n");
+
+        //error = clFinish(command_queue_id2);
+        //probe_error(error, (char *)"Error finishing\n");
+
+
+        //clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+        //clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+        //nanoSeconds = time_end - time_start;
+
+        //execTime_upsampleDistortion_SizeId2 += nanoSeconds;
+
+
+        if(TRACE_POWER)
+            print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=2");
+
+        // execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId2;
+            
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        //
+        //          PROCEED TO CUs OF SizeID=1
+
+        // Create kernel
+        kernel_upsampleDistortion = clCreateKernel(program_sizeid1, "upsampleDistortion", &error);
+        probe_error(error, (char *)"Error creating upsampleDistortion kernel\n");
+        printf("Performing upsampleDistortion kernel...\n");
+
+        // Query for work groups sizes information
+        error = clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
+        error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
+
+        probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
+        //cout << "-- Preferred WG size multiple " << preferred_size << endl;
+        //cout << "-- Maximum WG size " << maximum_size << endl;
+
+        // Set the arguments of the upsampleDistortion kernel
+        error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
+        // Reference samples and final distortion
+    #if MAX_PERFORMANCE_DIST // Only one distortion value is returned
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+        // Unified boundariers
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&refT_all_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&refL_all_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_int), (void *)&currFrame);
+    #else
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_SAD_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&return_SATD_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+        // Unified boundariers
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&refT_all_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refL_all_memObj);
+    #endif
+
+        probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
+
+        // Execute the OpenCL kernel on the list
+        // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
+        nWG = nCTUs*NUM_CU_SIZES_SizeId1;
+        global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
+        local_item_size = itemsPerWG;
+
+        if(TRACE_POWER)
+            print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=1");
+
+
+        error = clEnqueueNDRangeKernel(command_queue_id1, kernel_upsampleDistortion, 1, NULL,
+                                        &global_item_size, &local_item_size, 0, NULL, &event);
+        probe_error(error, (char *)"Error enqueuing kernel\n");
+
+        //error = clWaitForEvents(1, &event);
+        //probe_error(error, (char *)"Error waiting for events\n");
+
+        //error = clFinish(command_queue_id1);
+        //probe_error(error, (char *)"Error finishing\n");
+
+        //clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+        //clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+        //nanoSeconds = time_end - time_start;
+
+        // execTime_upsampleDistortion_SizeId1 += nanoSeconds;
+
+        if(TRACE_POWER)
+            print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=1");    
+
+        // execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId1;
+
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        //
+        //          PROCEED TO CUs OF SizeID=0
+
+        // Create kernel
+        kernel_upsampleDistortion = clCreateKernel(program_sizeid0, "upsampleDistortion", &error);
+        probe_error(error, (char *)"Error creating upsampleDistortion kernel\n");
+        printf("Performing upsampleDistortion kernel...\n");
+
+        // Query for work groups sizes information
+        error = clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
+        error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
+
+        probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
+        //cout << "-- Preferred WG size multiple " << preferred_size << endl;
+        //cout << "-- Maximum WG size " << maximum_size << endl;
+
+        // Set the arguments of the upsampleDistortion kernel
+        error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
+        // Reference samples and final distortion
+    #if MAX_PERFORMANCE_DIST // Only one distortion value is returned
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+        // Unified boundariers
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&refT_all_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&refL_all_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_int), (void *)&currFrame);
+    #else
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_SAD_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&return_SATD_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+        // Unified boundariers
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&refT_all_memObj);
+        error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refL_all_memObj);
+    #endif
+
+        probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
+
+        // Execute the OpenCL kernel on the list
+        // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
+        nWG = nCTUs*NUM_CU_SIZES_SizeId0*8; // Due to the large number of CUs 4x4 per CTU (1024), each WG only processes 128 CUs (12.5%)
+        global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
+        local_item_size = itemsPerWG;
+
+        if(TRACE_POWER)
+            print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=0");    
+            
+        error = clEnqueueNDRangeKernel(command_queue_id0, kernel_upsampleDistortion, 1, NULL,
+                                        &global_item_size, &local_item_size, 0, NULL, &event);
+        probe_error(error, (char *)"Error enqueuing kernel\n");
+
+        //error = clWaitForEvents(1, &event);
+        //probe_error(error, (char *)"Error waiting for events\n");
+
+        //error = clFinish(command_queue_id0);
+        //probe_error(error, (char *)"Error finishing\n");
+
+        //clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+        //clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+        //nanoSeconds = time_end - time_start;
+
+        // execTime_upsampleDistortion_SizeId0 += nanoSeconds;
+            
+        if(TRACE_POWER)
+            print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=0");  
+
+
+        // execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId0;
+
+
+        // Wait until all distortions are finished to read the results into host memory
+        error = clFinish(command_queue_id2);
+        probe_error(error, (char *)"Error finishing\n");
+        error = clFinish(command_queue_id1);
+        probe_error(error, (char *)"Error finishing\n");
+        error = clFinish(command_queue_id0);
+        probe_error(error, (char *)"Error finishing\n");
+
+        if(TRACE_POWER)
+            print_timestamp((char*) "START READ DISTORTION");
+
+        // READ N TIMES TO ACCOUNT FOR N KERNEL EXECUTIONS
+        readMemobjsIntoArray_Distortion(command_queue_read, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, &return_minSadHad[currFrame * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]], currFrame);
     
-
-
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    //
-    //          NOW WE OBTAIN THE REDUCED PREDICTION FOR ALL CU SIZES AND PREDICTION MODES
-    //
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
-    itemsPerWG = itemsPerWG_obtainReducedPrediction;
-
-    // Create kernel
-    kernel_reducedPrediction = clCreateKernel(program_sizeid2, "MIP_ReducedPred", &error);
-    probe_error(error, (char *)"Error creating MIP_ReducedPred kernel\n");
-    printf("Performing MIP_ReducedPred kernel...\n");
-
-    // Query for work groups sizes information
-    error = clGetKernelWorkGroupInfo(kernel_reducedPrediction, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
-    error |= clGetKernelWorkGroupInfo(kernel_reducedPrediction, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
-    error |= clGetKernelWorkGroupInfo(kernel_reducedPrediction, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
-    error |= clGetKernelWorkGroupInfo(kernel_reducedPrediction, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
-
-    probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
-    //cout << "-- Preferred WG size multiple " << preferred_size << endl;
-    //cout << "-- Maximum WG size " << maximum_size << endl;
-
-    // Set the arguments of the MIP_ReducedPred kernel
-    error_1  = clSetKernelArg(kernel_reducedPrediction, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 1, sizeof(cl_int), (void *)&frameWidth);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 2, sizeof(cl_int), (void *)&frameHeight);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 3, sizeof(cl_mem), (void *)&referenceFrame_memObj);
-    // Unified reduced boundariers
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 4, sizeof(cl_mem), (void *)&redT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_reducedPrediction, 5, sizeof(cl_mem), (void *)&redL_all_memObj);
-
-    probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
-
-    // Execute the OpenCL kernel on the list
-    // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
-    global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
-    local_item_size = itemsPerWG;
-
-    if(TRACE_POWER)
-        print_timestamp((char*) "START ENQUEUE reducedPred");
-
-
-    error = clEnqueueNDRangeKernel(command_queue, kernel_reducedPrediction, 1, NULL,
-                                    &global_item_size, &local_item_size, 0, NULL, &event);
-    probe_error(error, (char *)"Error enqueuing kernel\n");
-
-    error = clWaitForEvents(1, &event);
-    probe_error(error, (char *)"Error waiting for events\n");
-
-    error = clFinish(command_queue);
-    probe_error(error, (char *)"Error finishing\n");
-
-
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
-    nanoSeconds = time_end - time_start;
-
-    execTime_reducedPrediction += nanoSeconds;
-
-
-    if(TRACE_POWER)
-        print_timestamp((char*) "FINISH ENQUEUE reducedPred");
-
-    execTime += execTime_reducedPrediction;
-        
-
-    if(enableTerminalReport){
-        readMemobjsIntoArray_reducedPrediction(command_queue, nCTUs, TOTAL_PREDICTION_MODES, return_predictionSignal_memObj,  return_reducedPredictionSignal, return_SAD_memObj, return_SAD);
-        if(reportReducedPrediction)
-            reportReducedPredictionTargetCtu_ALL(return_reducedPredictionSignal, targetCTU, frameWidth, frameHeight);
-    }
-        
-
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    //
-    //          FINALLY, UPSAMPLE THE REDUCED PREDICTION AND COMPUTE THE DISTOTION
-    //
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
-    itemsPerWG = itemsPerWG_upsampleDistortion;
-
-
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    //
-    //          START WITH CUs OF SizeID=2
-
-    // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program_sizeid2, "upsampleDistortion", &error);
-    probe_error(error, (char *)"Error creating upsampleDistortion kernel\n");
-    printf("Performing upsampleDistortion kernel...\n");
-
-    // Query for work groups sizes information
-    error = clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
-    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
-    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
-    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
-
-    probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
-    //cout << "-- Preferred WG size multiple " << preferred_size << endl;
-    //cout << "-- Maximum WG size " << maximum_size << endl;
-
-    // Set the arguments of the upsampleDistortion kernel
-    error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
-    // Reference samples and final distortion
-#if MAX_PERFORMANCE_DIST // Only one distortion value is returned
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&referenceFrame_memObj);
-    // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&refL_all_memObj);
-#else
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_SAD_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&return_SATD_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
-    // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refL_all_memObj);
-#endif
-    
-    probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
-
-    // Execute the OpenCL kernel on the list
-    // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
-    nWG = nCTUs*NUM_CU_SIZES_SizeId2;
-    global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
-    local_item_size = itemsPerWG;
-
-    if(TRACE_POWER)
-        print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=2");
-
-
-    error = clEnqueueNDRangeKernel(command_queue, kernel_upsampleDistortion, 1, NULL,
-                                    &global_item_size, &local_item_size, 0, NULL, &event);
-    probe_error(error, (char *)"Error enqueuing kernel\n");
-
-    error = clWaitForEvents(1, &event);
-    probe_error(error, (char *)"Error waiting for events\n");
-
-    error = clFinish(command_queue);
-    probe_error(error, (char *)"Error finishing\n");
-
-
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
-    nanoSeconds = time_end - time_start;
-
-    execTime_upsampleDistortion_SizeId2 += nanoSeconds;
-
-
-    if(TRACE_POWER)
-        print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=2");
-
-    execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId2;
-        
-
-
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    //
-    //          PROCEED TO CUs OF SizeID=1
-
-    // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program_sizeid1, "upsampleDistortion", &error);
-    probe_error(error, (char *)"Error creating upsampleDistortion kernel\n");
-    printf("Performing upsampleDistortion kernel...\n");
-
-    // Query for work groups sizes information
-    error = clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
-    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
-    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
-    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
-
-    probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
-    //cout << "-- Preferred WG size multiple " << preferred_size << endl;
-    //cout << "-- Maximum WG size " << maximum_size << endl;
-
-    // Set the arguments of the upsampleDistortion kernel
-    error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
-    // Reference samples and final distortion
-#if MAX_PERFORMANCE_DIST // Only one distortion value is returned
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&referenceFrame_memObj);
-    // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&refL_all_memObj);
-#else
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_SAD_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&return_SATD_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
-    // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refL_all_memObj);
-#endif
-
-    probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
-
-    // Execute the OpenCL kernel on the list
-    // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
-    nWG = nCTUs*NUM_CU_SIZES_SizeId1;
-    global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
-    local_item_size = itemsPerWG;
-
-    if(TRACE_POWER)
-        print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=1");
-
-
-    error = clEnqueueNDRangeKernel(command_queue, kernel_upsampleDistortion, 1, NULL,
-                                    &global_item_size, &local_item_size, 0, NULL, &event);
-    probe_error(error, (char *)"Error enqueuing kernel\n");
-
-    error = clWaitForEvents(1, &event);
-    probe_error(error, (char *)"Error waiting for events\n");
-
-    error = clFinish(command_queue);
-    probe_error(error, (char *)"Error finishing\n");
-
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
-    nanoSeconds = time_end - time_start;
-
-    execTime_upsampleDistortion_SizeId1 += nanoSeconds;
-
-    if(TRACE_POWER)
-        print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=1");    
-
-    execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId1;
-
-
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    //
-    //          PROCEED TO CUs OF SizeID=0
-
-    // Create kernel
-    kernel_upsampleDistortion = clCreateKernel(program_sizeid0, "upsampleDistortion", &error);
-    probe_error(error, (char *)"Error creating upsampleDistortion kernel\n");
-    printf("Performing upsampleDistortion kernel...\n");
-
-    // Query for work groups sizes information
-    error = clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
-    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
-    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
-    error |= clGetKernelWorkGroupInfo(kernel_upsampleDistortion, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
-
-    probe_error(error, (char *)"Error querying preferred or maximum work group size\n");
-    //cout << "-- Preferred WG size multiple " << preferred_size << endl;
-    //cout << "-- Maximum WG size " << maximum_size << endl;
-
-    // Set the arguments of the upsampleDistortion kernel
-    error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 2, sizeof(cl_int), (void *)&frameHeight);
-    // Reference samples and final distortion
-#if MAX_PERFORMANCE_DIST // Only one distortion value is returned
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&referenceFrame_memObj);
-    // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&refL_all_memObj);
-#else
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 3, sizeof(cl_mem), (void *)&return_SAD_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 4, sizeof(cl_mem), (void *)&return_SATD_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 5, sizeof(cl_mem), (void *)&return_minSadHad_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 6, sizeof(cl_mem), (void *)&referenceFrame_memObj);
-    // Unified boundariers
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 7, sizeof(cl_mem), (void *)&refT_all_memObj);
-    error_1 |= clSetKernelArg(kernel_upsampleDistortion, 8, sizeof(cl_mem), (void *)&refL_all_memObj);
-#endif
-
-    probe_error(error_1, (char *)"Error setting arguments for the kernel\n");
-
-    // Execute the OpenCL kernel on the list
-    // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
-    nWG = nCTUs*NUM_CU_SIZES_SizeId0*8; // Due to the large number of CUs 4x4 per CTU (1024), each WG only processes 128 CUs (12.5%)
-    global_item_size = nWG * itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
-    local_item_size = itemsPerWG;
-
-    if(TRACE_POWER)
-        print_timestamp((char*) "START ENQUEUE upsamplePred_SIZEID=0");    
-        
-    error = clEnqueueNDRangeKernel(command_queue, kernel_upsampleDistortion, 1, NULL,
-                                    &global_item_size, &local_item_size, 0, NULL, &event);
-    probe_error(error, (char *)"Error enqueuing kernel\n");
-
-    error = clWaitForEvents(1, &event);
-    probe_error(error, (char *)"Error waiting for events\n");
-
-    error = clFinish(command_queue);
-    probe_error(error, (char *)"Error finishing\n");
-
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
-    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
-    nanoSeconds = time_end - time_start;
-
-    execTime_upsampleDistortion_SizeId0 += nanoSeconds;
-        
-    if(TRACE_POWER)
-        print_timestamp((char*) "FINISH ENQUEUE upsamplePred_SIZEID=0");    
-
-    execTime_upsampleDistortion += execTime_upsampleDistortion_SizeId0;
-
-    if(TRACE_POWER)
-        print_timestamp((char*) "START READ DISTORTION");
-
-
-    // READ N TIMES TO ACCOUNT FOR N KERNEL EXECUTIONS
-    readMemobjsIntoArray_Distortion(command_queue, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, return_minSadHad);
+    } // for(currFrame in N_FRAMES)
+
+    // Wait until the distortion values are fully read
+    error = clFinish(command_queue_read);
+    probe_error(error, (char *)"Error finishing read\n");
 
     if(TRACE_POWER)
         print_timestamp((char*) "FINISH READ DISTORTION");
-
 
     // REPORT DISTORTION VALUES TO TERMINAL
     if(enableTerminalReport && reportDistortion){
@@ -935,10 +981,7 @@ int main(int argc, char *argv[])
             exportAllDistortionValues_File(return_SAD, return_SATD, return_minSadHad, nCTUs, frameWidth, outputFilePreffix);
     }
 
-
     reportTimingResults();
-
-
 
     // -----------------------------------------------------------------
     //
@@ -968,14 +1011,22 @@ int main(int argc, char *argv[])
 
     // REMOVE
     // Clean up
-    error = clFlush(command_queue);
-    error |= clFinish(command_queue);
+    error = clFlush(command_queue_common);
+    error |= clFlush(command_queue_read);
+    error |= clFlush(command_queue_id2);
+    error |= clFlush(command_queue_id1);
+    error |= clFlush(command_queue_id0);
+    error |= clFinish(command_queue_common);
+    error |= clFinish(command_queue_read);
+    error |= clFinish(command_queue_id2);
+    error |= clFinish(command_queue_id1);
+    error |= clFinish(command_queue_id0);
     error |= clReleaseKernel(kernel_initRefSamples);
     error |= clReleaseKernel(kernel_reducedPrediction);
     error |= clReleaseProgram(program_sizeid2);
     error |= clReleaseProgram(program_sizeid1);
     error |= clReleaseProgram(program_sizeid0);
-    error |= clReleaseCommandQueue(command_queue);
+    error |= clReleaseCommandQueue(command_queue_common);
     error |= clReleaseMemObject(referenceFrame_memObj);
     error |= clReleaseMemObject(return_predictionSignal_memObj);
     error |= clReleaseMemObject(return_SATD_memObj);
