@@ -48,9 +48,55 @@ typedef struct DateAndTime {
     int msec;
 } DateAndTime;
 
-    DateAndTime date_and_time;
-    struct timeval tv;
-    struct tm *tm;
+int computeTimeDifferenceMs(DateAndTime start, DateAndTime finish){
+    int difference = 0;
+
+    // Consider ms
+    if(finish.msec>=start.msec){
+        difference += finish.msec-start.msec;
+    }
+    else{
+        finish.seconds--;
+        difference += 1000 + finish.msec-start.msec;
+    }
+
+    // Consider Seconds
+    if(finish.seconds>=start.seconds){
+        difference += 1000 * (finish.seconds-start.seconds);
+    }
+    else{
+        finish.minutes--;
+        difference += 1000 * (60 + finish.seconds-start.seconds);
+    }
+
+    // Consider Minutes
+    if(finish.minutes>=start.minutes){
+        difference += 1000*60 * (finish.minutes-start.minutes);
+    }
+    else{
+        finish.hour--;
+        difference += 1000*60 * (60 + finish.minutes-start.minutes);
+    }
+    
+    // Consider Hours
+    if(finish.hour>=start.hour){
+        difference += 1000*60*60 * (finish.hour-start.hour);
+    }
+    else{
+        finish.day--;
+        difference += 1000*60*60 * (24 + finish.hour-start.hour);
+    }
+
+    return difference;
+
+}
+
+DateAndTime date_and_time;
+DateAndTime startWriteSamples, endReadingDistortion; // Used to track the processing time
+struct timeval tv;
+struct tm *tm;
+
+int timeDifference; // in miliseconds
 
 
 void print_timestamp(char* messagePreffix){
@@ -61,7 +107,29 @@ void print_timestamp(char* messagePreffix){
     date_and_time.seconds = tm->tm_sec;
     date_and_time.msec = (int) (tv.tv_usec / 1000);
                 // hh:mm:ss:ms
-    printf("%s @ %02d:%02d:%02d:%03d\n", messagePreffix,date_and_time.hour, date_and_time.minutes, date_and_time.seconds, date_and_time.msec );
+    printf("%s @ %02d:%02d:%02d.%03d\n", messagePreffix,date_and_time.hour, date_and_time.minutes, date_and_time.seconds, date_and_time.msec );
+}
+
+// Save the start time (before write samples)
+void save_startTime(){
+    gettimeofday(&tv, NULL);
+    tm = localtime(&tv.tv_sec);
+    startWriteSamples.hour = tm->tm_hour;
+    startWriteSamples.minutes = tm->tm_min;
+    startWriteSamples.seconds = tm->tm_sec;
+    startWriteSamples.msec = (int) (tv.tv_usec / 1000);
+}
+
+// Save the finish time (after read distortion)
+void save_finishTime(){
+    gettimeofday(&tv, NULL);
+    tm = localtime(&tv.tv_sec);
+    endReadingDistortion.hour = tm->tm_hour;
+    endReadingDistortion.minutes = tm->tm_min;
+    endReadingDistortion.seconds = tm->tm_sec;
+    endReadingDistortion.msec = (int) (tv.tv_usec / 1000);
+
+    timeDifference = computeTimeDifferenceMs(startWriteSamples, endReadingDistortion);
 }
 
 void probe_error(cl_int error, char* message){
@@ -758,6 +826,15 @@ void reportTargetDistortionValues_File(long int *SAD, long int *SATD, long int *
     }
     fclose(distortionFile);
 }
+
+void reportTimingResults_Compact(){
+    printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n");
+    printf("TIMING RESULTS (miliseconds)\n");
+    printf("Elapsed time (ms) from writing samples to reading distortion (%dx), %d\n", N_FRAMES, timeDifference);// + 1000*timeDifference.seconds + 1000*60*timeDifference.minutes);
+    printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n\n");
+
+}
+
 
 void reportTimingResults(){
     totalGpuTime = writeTime + execTime_reducedBoundaries + execTime_reducedPrediction + execTime_upsampleDistortion + readTime_SAD;

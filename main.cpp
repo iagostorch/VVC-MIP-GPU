@@ -440,8 +440,11 @@ int main(int argc, char *argv[])
     cl_ulong write_time_end;
     cl_event write_event;
 
-    if(TRACE_POWER)
+    if(TRACE_POWER){
         print_timestamp((char*) "START WRITE SAMPLES MEMOBJ");
+        save_startTime();
+    }
+        
     
     error = clEnqueueWriteBuffer(command_queue_common, referenceFrame_memObj, CL_TRUE, 0,
                                 N_FRAMES * FRAME_SIZE * sizeof(short), reference_frame, 0, NULL, &write_event);
@@ -960,8 +963,11 @@ int main(int argc, char *argv[])
     error = clFinish(command_queue_read);
     probe_error(error, (char *)"Error finishing read\n");
 
-    if(TRACE_POWER)
+    if(TRACE_POWER){
+        save_finishTime();
         print_timestamp((char*) "FINISH READ DISTORTION");
+    }
+        
 
     // REPORT DISTORTION VALUES TO TERMINAL
     if(enableTerminalReport && reportDistortion){
@@ -981,7 +987,9 @@ int main(int argc, char *argv[])
             exportAllDistortionValues_File(return_SAD, return_SATD, return_minSadHad, nCTUs, frameWidth, outputFilePreffix);
     }
 
-    reportTimingResults();
+    // reportTimingResults();
+    reportTimingResults_Compact();
+
 
     // -----------------------------------------------------------------
     //
