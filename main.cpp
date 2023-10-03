@@ -540,8 +540,9 @@ int main(int argc, char *argv[])
     probe_error(error,(char*)"Error creating memory object for debugging information\n");
 
 
-    for(int currFrame=0; currFrame < N_FRAMES; currFrame++){
+    for(int curr=0; curr < N_FRAMES; curr++){
 
+        int currFrame = curr;
 
         // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
         //
@@ -957,6 +958,11 @@ int main(int argc, char *argv[])
         // READ N TIMES TO ACCOUNT FOR N KERNEL EXECUTIONS
         readMemobjsIntoArray_Distortion(command_queue_read, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, &return_minSadHad[currFrame * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]], currFrame);
     
+        // error = clFinish(command_queue_read);
+        // probe_error(error, (char *)"Error finishing read\n");
+        // if(TRACE_POWER){
+        //     print_timestamp((char*) "FINISH READ DISTORTION");
+        // }
     } // for(currFrame in N_FRAMES)
 
     // Wait until the distortion values are fully read
