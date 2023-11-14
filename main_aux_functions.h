@@ -2,6 +2,8 @@
 
 #define TRACE_POWER 1   // When enabled the host is simplified by reducing unneccessary memory reads and prints, the timestamp of major operations is printed, the GPU operations are repeated N_FRAMES times
 
+#define BUFFER_SLOTS 3 // Numbe of frames stored at once in memory (reference samples, distortion, and metadata)
+
 int N_FRAMES = -1; // Overwritten by sys.argv
 
 #include <CL/cl.h>
@@ -536,7 +538,7 @@ void readMemobjsIntoArray_Distortion(cl_command_queue command_queue, int nCTUs, 
     
     // ALWAYS read minSadhad
 
-    error =  clEnqueueReadBuffer(command_queue, return_minSadHad_memObj, CL_FALSE, currFrame * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), 
+    error =  clEnqueueReadBuffer(command_queue, return_minSadHad_memObj, CL_FALSE, (currFrame%BUFFER_SLOTS) * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), 
             // nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_minSadHad + currFrame * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), 0, NULL, &read_event);
             nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(cl_long), return_minSadHad, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return prediction\n");

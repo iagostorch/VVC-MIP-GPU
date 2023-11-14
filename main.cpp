@@ -211,6 +211,9 @@ int main(int argc, char *argv[])
     // "idX" queues deal with distortion of specific SizeIds. 
     // "read" queue deals with reading distortion WITHOUT BLOCKING
 
+    cl_command_queue command_queue_write = clCreateCommandQueue(context, device_id, CL_QUEUE_PROFILING_ENABLE, &error);
+    probe_error(error, (char*)"Error creating command queue\n");
+
     cl_command_queue command_queue_common = clCreateCommandQueue(context, device_id, CL_QUEUE_PROFILING_ENABLE, &error);
     probe_error(error, (char*)"Error creating command queue\n");
 
@@ -299,35 +302,35 @@ int main(int argc, char *argv[])
 
     // Used for all sizeId=2 CU sizes together
     cl_mem redT_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                              N_FRAMES * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(short), NULL, &error_1);    
+                                              BUFFER_SLOTS * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(short), NULL, &error_1);    
     cl_mem redL_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                              N_FRAMES * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(short), NULL, &error_2);    
+                                              BUFFER_SLOTS * nCTUs * (ALL_TOTAL_CUS_SizeId12_PER_CTU * BOUNDARY_SIZE_Id12 + ALL_TOTAL_CUS_SizeId0_PER_CTU * BOUNDARY_SIZE_Id0) * sizeof(short), NULL, &error_2);    
     
     
     cl_mem refT_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                              N_FRAMES * nCTUs * ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_3);
+                                              BUFFER_SLOTS * nCTUs * ALL_stridedCompleteTopBoundaries[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_3);
     cl_mem refL_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                              N_FRAMES * nCTUs * ALL_stridedCompleteLeftBoundaries[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_4);
+                                              BUFFER_SLOTS * nCTUs * ALL_stridedCompleteLeftBoundaries[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_4);
 
     error = error || error_1 || error_2 || error_3 || error_4;
 
     
     cl_mem referenceFrame_memObj = clCreateBuffer(context, CL_MEM_READ_ONLY,
-                                                  N_FRAMES * FRAME_SIZE * sizeof(short), NULL, &error_1);
+                                                  BUFFER_SLOTS * FRAME_SIZE * sizeof(short), NULL, &error_1);
 
     // These memory objects hold the predicted signal and distortion after the kernel has finished
     cl_mem return_predictionSignal_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                                           N_FRAMES * nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_2); // Each CTU is composed of TOTAL_CUS_PER_CTU CUs, and each reduced CU is 8*8, and we have 12 prediction modes
+                                                           BUFFER_SLOTS * nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_2); // Each CTU is composed of TOTAL_CUS_PER_CTU CUs, and each reduced CU is 8*8, and we have 12 prediction modes
 
     cl_mem return_SATD_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_3);
+                                               BUFFER_SLOTS * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_3);
     cl_mem return_SAD_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_4);
+                                               BUFFER_SLOTS * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_4);
 
     error = error || error_1 || error_2 || error_3 || error_4;
 
     cl_mem return_minSadHad_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_1);
+                                               BUFFER_SLOTS * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_1);
 
     error = error || error_1;
 
@@ -446,11 +449,19 @@ int main(int argc, char *argv[])
     }
         
     
-    error = clEnqueueWriteBuffer(command_queue_common, referenceFrame_memObj, CL_TRUE, 0,
-                                N_FRAMES * FRAME_SIZE * sizeof(short), reference_frame, 0, NULL, &write_event);
+    
+    /*
+    
+    ONLY WRITE THE FIRST FRAME NOW
+    THE NEXT FRAMES WILL BE WRITTEN ON DEMAND INSIDE THE FOR LOOP REUSING MEMORY SLOTS (CIRCULAR BUFFER)
+
+    */
+
+    error = clEnqueueWriteBuffer(command_queue_write, referenceFrame_memObj, CL_TRUE, 0,
+                                1 * FRAME_SIZE * sizeof(short), reference_frame, 0, NULL, &write_event);
     // error = clWaitForEvents(1, &write_event);
     // probe_error(error, (char*)"Error waiting for write events\n");  
-    error = clFinish(command_queue_common);
+    error = clFinish(command_queue_write);
     probe_error(error, (char*)"Error finishing write\n");
     clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_START, sizeof(write_time_start), &write_time_start, NULL);
     clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_END, sizeof(write_time_end), &write_time_end, NULL);
@@ -543,6 +554,7 @@ int main(int argc, char *argv[])
     for(int curr=0; curr < N_FRAMES; curr++){
 
         int currFrame = curr;
+        printf("Current frame %d\n", curr);
 
         // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
         //
@@ -624,8 +636,24 @@ int main(int argc, char *argv[])
                 reportCompleteBoundariesTargetCtu_ALL(return_unified_refT, return_unified_refL, targetCTU, frameWidth, frameHeight);
         }
         
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        //
+        //          WHILE THE BOUNDARIES ARE BEING INITIALIZED, WE CAN START COPYING THE NEXT FRAME FROM HOST INTO GPU USING A NON-BLOCKING COPY
+        //          WRITING ONE FRAME IS MUCH FASER THAN DOING UPSAMPLING SO THERE SHOULD BE NO NEED ADD SYNCH BARRIERS HERE    
+        //
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-
+        // Only copy the number of available frames. In the next iteration we will not copy anything    
+        if(curr+1<N_FRAMES){
+            error = clFinish(command_queue_write);
+            probe_error(error, (char*)"Error finishing write\n");
+                                                                                    // non-blocking
+                                                                                            // offset in mem_obj
+            error = clEnqueueWriteBuffer(command_queue_write, referenceFrame_memObj, CL_FALSE, ((curr+1)%BUFFER_SLOTS) * FRAME_SIZE * sizeof(short),
+                                                                        // c++ array with offset
+                                        1 * FRAME_SIZE * sizeof(short), reference_frame+(curr+1)*FRAME_SIZE, 0, NULL, &write_event);
+        }
+        
         // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
         //
         //          NOW WE OBTAIN THE REDUCED PREDICTION FOR ALL CU SIZES AND PREDICTION MODES
@@ -956,7 +984,7 @@ int main(int argc, char *argv[])
             print_timestamp((char*) "START READ DISTORTION");
 
         // READ N TIMES TO ACCOUNT FOR N KERNEL EXECUTIONS
-        readMemobjsIntoArray_Distortion(command_queue_read, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, &return_minSadHad[currFrame * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]], currFrame);
+        readMemobjsIntoArray_Distortion(command_queue_read, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, &return_minSadHad[(currFrame%BUFFER_SLOTS) * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]], currFrame);
     
         // error = clFinish(command_queue_read);
         // probe_error(error, (char *)"Error finishing read\n");
