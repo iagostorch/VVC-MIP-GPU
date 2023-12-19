@@ -551,9 +551,9 @@ int main(int argc, char *argv[])
     probe_error(error,(char*)"Error creating memory object for debugging information\n");
 
 
-    for(int curr=0; curr < N_FRAMES; curr++){
+    for(cl_int curr=0; curr < N_FRAMES; curr++){
 
-        int currFrame = curr;
+        cl_int currFrame = curr;
         printf("Current frame %d\n", curr);
 
         // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -579,6 +579,7 @@ int main(int argc, char *argv[])
         //cout << "-- Preferred WG size multiple " << preferred_size << endl;
         //cout << "-- Maximum WG size " << maximum_size << endl;
 
+        currFrame = curr;
         // Set the arguments of the kernel initBoundaries
         error_1 = clSetKernelArg(kernel_initRefSamples, 0, sizeof(cl_mem), (void *)&referenceFrame_memObj);
         error_1 |= clSetKernelArg(kernel_initRefSamples, 1, sizeof(cl_int), (void *)&frameWidth);
@@ -645,6 +646,10 @@ int main(int argc, char *argv[])
 
         // Only copy the number of available frames. In the next iteration we will not copy anything    
         if(curr+1<N_FRAMES){
+            if(TRACE_POWER){
+                print_timestamp((char*) "START WRITE SAMPLES MEMOBJ");
+            }
+
             error = clFinish(command_queue_write);
             probe_error(error, (char*)"Error finishing write\n");
                                                                                     // non-blocking
@@ -677,6 +682,7 @@ int main(int argc, char *argv[])
         //cout << "-- Preferred WG size multiple " << preferred_size << endl;
         //cout << "-- Maximum WG size " << maximum_size << endl;
 
+        currFrame = curr;
         // Set the arguments of the MIP_ReducedPred kernel
         error_1  = clSetKernelArg(kernel_reducedPrediction, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
         error_1 |= clSetKernelArg(kernel_reducedPrediction, 1, sizeof(cl_int), (void *)&frameWidth);
@@ -762,6 +768,7 @@ int main(int argc, char *argv[])
         //cout << "-- Preferred WG size multiple " << preferred_size << endl;
         //cout << "-- Maximum WG size " << maximum_size << endl;
 
+        currFrame = curr;
         // Set the arguments of the upsampleDistortion kernel
         error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
         error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
@@ -840,6 +847,7 @@ int main(int argc, char *argv[])
         //cout << "-- Preferred WG size multiple " << preferred_size << endl;
         //cout << "-- Maximum WG size " << maximum_size << endl;
 
+        currFrame = curr;
         // Set the arguments of the upsampleDistortion kernel
         error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
         error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
@@ -916,6 +924,7 @@ int main(int argc, char *argv[])
         //cout << "-- Preferred WG size multiple " << preferred_size << endl;
         //cout << "-- Maximum WG size " << maximum_size << endl;
 
+        currFrame = curr;
         // Set the arguments of the upsampleDistortion kernel
         error_1  = clSetKernelArg(kernel_upsampleDistortion, 0, sizeof(cl_mem), (void *)&return_predictionSignal_memObj);
         error_1 |= clSetKernelArg(kernel_upsampleDistortion, 1, sizeof(cl_int), (void *)&frameWidth);
@@ -984,7 +993,7 @@ int main(int argc, char *argv[])
             print_timestamp((char*) "START READ DISTORTION");
 
         // READ N TIMES TO ACCOUNT FOR N KERNEL EXECUTIONS
-        readMemobjsIntoArray_Distortion(command_queue_read, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, &return_minSadHad[(currFrame%BUFFER_SLOTS) * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]], currFrame);
+        readMemobjsIntoArray_Distortion(command_queue_read, nCTUs, PREDICTION_MODES_ID2*2, return_SAD_memObj, return_SAD, return_SATD_memObj, return_SATD, return_minSadHad_memObj, &return_minSadHad[currFrame * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]], currFrame);
     
         // error = clFinish(command_queue_read);
         // probe_error(error, (char *)"Error finishing read\n");
