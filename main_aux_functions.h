@@ -2,7 +2,7 @@
 
 #define TRACE_POWER 1   // When enabled the host is simplified by reducing unneccessary memory reads and prints, the timestamp of major operations is printed, the GPU operations are repeated N_FRAMES times
 
-#define BUFFER_SLOTS 3 // Numbe of frames stored at once in memory (reference samples, distortion, and metadata)
+#define BUFFER_SLOTS 2 // Numbe of frames stored at once in memory (reference samples, distortion, and metadata)
 
 int N_FRAMES = -1; // Overwritten by sys.argv
 

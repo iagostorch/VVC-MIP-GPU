@@ -9,7 +9,7 @@
 #include "mip_matrix.cl"
 #include "kernel_aux_functions.cl"
 
-#define BUFFER_SLOTS 3
+#define BUFFER_SLOTS 2
 
 // This kernel is used to fetch the reduced boundaries for all the blocks
 // Each WG will process one CTU composed of a single CU size
