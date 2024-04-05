@@ -21,6 +21,38 @@
 
 __constant unsigned char MIP_SHIFT_MATRIX = 6;
 __constant unsigned char MIP_OFFSET_MATRIX = 32;
+                        //     idx, row, col
+__constant unsigned short convKernelLib[4][3][3] = {
+  // V0
+  {
+    {  1,  1,  1  },
+    {  1,  1,  1  },
+    {  1,  1,  1  }
+  },
+  
+  // V1
+  {
+    {  1,  2,  1  },
+    {  2,  3,  2  },
+    {  1,  2,  1  }
+  },
+  
+  
+  // V2
+  {
+    {  1,  2,  1},
+    {  2,  12, 2},
+    {  1,  2,  1}
+  },
+  
+  // V3
+  {
+    {  1,  1,  1  },
+    {  1,  8,  1  },
+    {  1,  1,  1  }
+  },
+};
+
 
 enum CU_SIZE {
     _64x64 = 0,

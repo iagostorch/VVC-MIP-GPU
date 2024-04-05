@@ -1,6 +1,10 @@
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 #define CL_TARGET_OPENCL_VERSION 120
 
+
+#define USE_ALTERNATIVE_SAMPLES 0
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream> 
@@ -312,27 +316,31 @@ int main(int argc, char *argv[])
     cl_mem refL_all_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                               BUFFER_SLOTS * nCTUs * ALL_stridedCompleteLeftBoundaries[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_4);
 
-    error = error || error_1 || error_2 || error_3 || error_4;
+    error = error_1 || error_2 || error_3 || error_4;
 
     
     cl_mem referenceFrame_memObj = clCreateBuffer(context, CL_MEM_READ_ONLY,
                                                   BUFFER_SLOTS * FRAME_SIZE * sizeof(short), NULL, &error_1);
 
+    cl_mem filteredFrame_memObj = clCreateBuffer(context, CL_MEM_READ_ONLY,
+                                                  N_FRAMES * FRAME_SIZE * sizeof(short), NULL, &error_2);
+
+    error = error || error_1 || error_2;
+
     // These memory objects hold the predicted signal and distortion after the kernel has finished
     cl_mem return_predictionSignal_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                                           BUFFER_SLOTS * nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_2); // Each CTU is composed of TOTAL_CUS_PER_CTU CUs, and each reduced CU is 8*8, and we have 12 prediction modes
+                                                           BUFFER_SLOTS * nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(short), NULL, &error_1); // Each CTU is composed of TOTAL_CUS_PER_CTU CUs, and each reduced CU is 8*8, and we have 12 prediction modes
 
     cl_mem return_SATD_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               BUFFER_SLOTS * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_3);
+                                               BUFFER_SLOTS * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_2);
     cl_mem return_SAD_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                               BUFFER_SLOTS * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_3);
+
+
+    cl_mem return_minSadHad_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                                BUFFER_SLOTS * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_4);
 
     error = error || error_1 || error_2 || error_3 || error_4;
-
-    cl_mem return_minSadHad_memObj = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                               BUFFER_SLOTS * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES] * sizeof(long), NULL, &error_1);
-
-    error = error || error_1;
 
     probe_error(error, (char*)"Error creating memory buffers\n");
 
@@ -484,7 +492,7 @@ int main(int argc, char *argv[])
     size_t size_ret;
     cl_uint preferred_size, maximum_size;
 
-    cl_kernel kernel_initRefSamples, kernel_reducedPrediction, kernel_upsampleDistortion; // The object that holds the compiled kernel to be enqueued
+    cl_kernel kernel_filterFrames, kernel_initRefSamples, kernel_reducedPrediction, kernel_upsampleDistortion; // The object that holds the compiled kernel to be enqueued
 
     // Used to profile execution time of kernel
     cl_event event;
@@ -512,6 +520,8 @@ int main(int argc, char *argv[])
 
     // These dynamic arrays retrieve the information from the kernel to the host
     // Predicted signal and distortion
+    
+    short *return_filteredFrame;
     short *return_reducedPredictionSignal;
     long *return_SATD, *return_SAD, *return_minSadHad;
     short *return_unified_redT, *return_unified_redL;
@@ -523,6 +533,7 @@ int main(int argc, char *argv[])
     // TODO: Correct to the proper number of WGs and CTUs
     // Currently, each WG will process one CTU partitioned into one CU size, and produce the reduced boundaries for each one of the CUs
     nWG = nCTUs*ALL_NUM_CU_SIZES;
+    int nWG_Filter = nCTUs*2;
 
     debug_mem_obj = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                    nWG * itemsPerWG_upsampleDistortion * 4 * sizeof(cl_short), NULL, &error_1);
@@ -530,6 +541,7 @@ int main(int argc, char *argv[])
     // -----------------------------
     // Allocate some memory space
     // -----------------------------
+    return_filteredFrame = (short*)malloc(sizeof(short) * N_FRAMES * FRAME_SIZE);
     return_reducedPredictionSignal = (short*)malloc(sizeof(short) * N_FRAMES * nCTUs * ALL_stridedPredictionsPerCtu[ALL_NUM_CU_SIZES]); // Each predicted CU has 8x8 samples
     return_SATD = (long*) malloc(sizeof(long) * N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);
     return_SAD = (long*) malloc(sizeof(long) * N_FRAMES * nCTUs * ALL_stridedDistortionsPerCtu[ALL_NUM_CU_SIZES]);
@@ -556,6 +568,95 @@ int main(int argc, char *argv[])
         cl_int currFrame = curr;
         printf("Current frame %d\n", curr);
 
+
+#if USE_ALTERNATIVE_SAMPLES
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        //
+        //          FILTER THE ORIGINAL INPUT SAMPLES
+        //
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+        itemsPerWG = 256;
+
+        // Create kernel
+        kernel_filterFrames = clCreateKernel(program_sizeid2, "filterFrame", &error);
+        probe_error(error, (char*)"Error creating filterFrame kernel\n"); 
+        printf("Performing filterFrame kernel...\n");
+
+        // Query for work groups sizes information
+        error = clGetKernelWorkGroupInfo(kernel_filterFrames, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_filterFrames, device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, size_ret, &preferred_size, NULL);
+        error |= clGetKernelWorkGroupInfo(kernel_filterFrames, device_id, CL_KERNEL_WORK_GROUP_SIZE, 0, NULL, &size_ret);
+        error |= clGetKernelWorkGroupInfo(kernel_filterFrames, device_id, CL_KERNEL_WORK_GROUP_SIZE, size_ret, &maximum_size, NULL);
+
+        probe_error(error, (char*)"Error querying preferred or maximum work group size\n");
+        //cout << "-- Preferred WG size multiple " << preferred_size << endl;
+        //cout << "-- Maximum WG size " << maximum_size << endl;
+
+        int k=2;
+
+        currFrame = curr;
+        // Set the arguments of the kernel initBoundaries
+        error_1 = clSetKernelArg(kernel_filterFrames, 0, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+        error_1 = clSetKernelArg(kernel_filterFrames, 1, sizeof(cl_mem), (void *)&filteredFrame_memObj);
+        error_1 |= clSetKernelArg(kernel_filterFrames, 2, sizeof(cl_int), (void *)&frameWidth);
+        error_1 |= clSetKernelArg(kernel_filterFrames, 3, sizeof(cl_int), (void *)&frameHeight);
+        error_1 |= clSetKernelArg(kernel_filterFrames, 4, sizeof(cl_int), (void *)&k);
+        error_1 |= clSetKernelArg(kernel_filterFrames, 5, sizeof(cl_int), (void *)&currFrame);
+
+
+        probe_error(error_1, (char*)"Error setting arguments for the kernel\n");
+
+        // Execute the OpenCL kernel on the list
+        // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
+        global_item_size = nWG_Filter*itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
+        local_item_size = itemsPerWG;
+
+        if(TRACE_POWER)
+            print_timestamp((char*) "START ENQUEUE filterFrame");
+
+        error = clEnqueueNDRangeKernel(command_queue_common, kernel_filterFrames, 1, NULL,
+                                    &global_item_size, &local_item_size, 0, NULL, &event);
+        probe_error(error, (char*)"Error enqueuing kernel\n");
+
+
+        error = clFinish(command_queue_common);
+        probe_error(error, (char*)"Error finishing filterSamples\n");
+
+
+        if(TRACE_POWER)
+            print_timestamp((char*) "FINISH ENQUEUE filterFrame");
+
+
+        // execTime += execTime_reducedBoundaries;
+        
+        // Read filtering results from memory objects into host arrays
+        readMemobjsIntoArray_FilteredFrame(command_queue_common, frameWidth, frameHeight, filteredFrame_memObj, return_filteredFrame);
+
+        // // Samples that are on the edges of the frame are not filtered due to lack of neighbors
+        // // Instead of correcting this issue on the GPU, it is corrected by the CPU since it's much faster
+        // // Simply copy the reference samples into filtered samples
+        // correctFilteringAtEdges(frameWidth, frameHeight, reference_frame, return_filteredFrame);
+
+
+
+
+
+        // printf("\n\nFILTERED SAMPLES\n\n");
+
+        // for(int h=0; h<frameHeight; h++){
+        //     for(int w=0; w<frameWidth; w++){
+        //         // reference_frame
+        //         // return_filteredFrame
+        //         printf("%hd,", return_filteredFrame[h*frameWidth+w]);
+        //     }
+        //     printf("\n");
+        // }
+
+
+#endif
+
         // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
         //
         //          FIRST WE MUST OBTAIN THE REDUCED BOUNDARIES
@@ -581,7 +682,11 @@ int main(int argc, char *argv[])
 
         currFrame = curr;
         // Set the arguments of the kernel initBoundaries
-        error_1 = clSetKernelArg(kernel_initRefSamples, 0, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+        #if USE_ALTERNATIVE_SAMPLES
+            error_1 = clSetKernelArg(kernel_initRefSamples, 0, sizeof(cl_mem), (void *)&filteredFrame_memObj);
+        #else
+            error_1 = clSetKernelArg(kernel_initRefSamples, 0, sizeof(cl_mem), (void *)&referenceFrame_memObj);
+        #endif
         error_1 |= clSetKernelArg(kernel_initRefSamples, 1, sizeof(cl_int), (void *)&frameWidth);
         error_1 |= clSetKernelArg(kernel_initRefSamples, 2, sizeof(cl_int), (void *)&frameHeight);
         // Combined reduced and complete boundaries for all CU

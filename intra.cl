@@ -667,11 +667,11 @@ __kernel void upsampleDistortion(__global short *reducedPrediction, const int fr
     #if SIZEID==2
         // Specifically for CUs 4x4 with SizeId=0. For other sizes it is zero
         const int cuIdxOffset = 0;
-        const int const offsetInCtuY = 0;
+        const int offsetInCtuY = 0;
     #elif SIZEID==1
         // Specifically for CUs 4x4 with SizeId=0. For other sizes it is zero
         const int cuIdxOffset = 0;
-        const int const offsetInCtuY = 0;
+        const int offsetInCtuY = 0;
     #else // SIZEID==0
         // Specifically for CUs 4x4 with SizeId=0. For other sizes it is zero
         const int cuIdxOffset = 128 * (wg%8); // Each WG processes 12.5% of the CTU, therefore we must correct the first sample where each WG start
@@ -976,6 +976,7 @@ __kernel void upsampleDistortion(__global short *reducedPrediction, const int fr
                 int subblockX, subblockY;
                 short16 origSubblock, predSubblock;
 
+                // TODO: Here we can improve performance by focusing the work on fewer warps/wavefronts
                 // Here, each workitem will compute the SATD for one or more subblocks 4x4, and accumulate the results in __local localSATD
                 if((lid%samplesInSmallerCu) < itemsPerCuInSatd){
                     for(int pass=0; pass<nPassesForSatd; pass++){
@@ -1168,3 +1169,242 @@ __kernel void upsampleDistortion(__global short *reducedPrediction, const int fr
         } // Close if lid < const
    // } // Close for N_FRAMES
 } // Close kernel
+
+// This kernel is used to fetch the original samples and apply a low-pass filter
+// The filtered samples are used as references during prediction
+__kernel void filterFrame(__global short *referenceFrame, __global short *filteredFrame, const int frameWidth, const int frameHeight, const int kernelIdx, const int rep){
+    
+    int gid = get_global_id(0);
+    int wg = get_group_id(0);
+    int lid = get_local_id(0);
+    int wgSize = get_local_size(0);
+
+    unsigned short convKernel[3][3];
+    
+    convKernel[0][0] = convKernelLib[kernelIdx][0][0];
+    convKernel[0][1] = convKernelLib[kernelIdx][0][1];
+    convKernel[0][2] = convKernelLib[kernelIdx][0][2];
+    convKernel[1][0] = convKernelLib[kernelIdx][1][0];
+    convKernel[1][1] = convKernelLib[kernelIdx][1][1];
+    convKernel[1][2] = convKernelLib[kernelIdx][1][2];
+    convKernel[2][0] = convKernelLib[kernelIdx][2][0];
+    convKernel[2][1] = convKernelLib[kernelIdx][2][1];
+    convKernel[2][2] = convKernelLib[kernelIdx][2][2];
+
+    short scale = convKernel[0][0]+convKernel[0][1]+convKernel[0][2]+convKernel[1][0]+convKernel[1][1]+convKernel[1][2]+convKernel[2][0]+convKernel[2][1]+convKernel[2][2];
+    short topScale = convKernel[1][0]+convKernel[1][1]+convKernel[1][2]+convKernel[2][0]+convKernel[2][1]+convKernel[2][2];
+    short bottomScale = convKernel[0][0]+convKernel[0][1]+convKernel[0][2]+convKernel[1][0]+convKernel[1][1]+convKernel[1][2];
+    short leftScale = convKernel[0][1]+convKernel[0][2]+convKernel[1][1]+convKernel[1][2]+convKernel[2][1]+convKernel[2][2];
+    short rightScale = convKernel[0][0]+convKernel[0][1]+convKernel[1][0]+convKernel[1][1]+convKernel[2][0]+convKernel[2][1];
+    short topLeftScale = convKernel[1][1]+convKernel[1][2]+convKernel[2][1]+convKernel[2][2];
+    short topRightScale = convKernel[1][0]+convKernel[1][1]+convKernel[2][0]+convKernel[2][1];
+    short bottomLeftScale = convKernel[0][1]+convKernel[0][2]+convKernel[1][1]+convKernel[1][2];
+    short bottomRightScale = convKernel[0][0]+convKernel[0][1]+convKernel[1][0]+convKernel[1][1];
+    int isTop=0, isBottom=0, isLeft=0, isRight=0;
+
+    __local unsigned short filteredCTU[128*128];
+
+    int halfCtuColumns = ceil(frameWidth/128.0);
+    int halfCtuRows = ceil(frameHeight/64.0);
+
+    
+    // int ctuIdx = wg; //wg;
+    int halfCtuIdx = wg;
+    // int ctuX = (ctuIdx % halfCtuColumns)*128;
+    int halfCtuX = (halfCtuIdx % halfCtuColumns)*128;
+    // int ctuY = (ctuIdx / halfCtuColumns)*64;
+    int halfCtuY = (halfCtuIdx / halfCtuColumns)*64;
+
+
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    //
+    //      FETCH THE ORIGINAL SAMPLES FROM __global INTO __local MEMORY
+    //
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    
+    // Each WG processes one CTU. It requires a halo of 1 sample around the input
+    __local short origHalfCTU[130*66];
+    __local short filteredHalfCTU[128*64];
+
+
+    // Fetch the inner region of the CTU, without the halo  
+
+    int nPassesFetchOriginal = 128*64/wgSize;
+    int rowsPerPass = wgSize/128;
+    int g_halfCtuBaseIdx = halfCtuY*frameWidth + halfCtuX;
+    int haloOffset = 130+1;
+    int l_ctuStride = 130;
+    int idx;
+
+    for(int pass=0; pass<nPassesFetchOriginal; pass++){
+        origHalfCTU[haloOffset + pass*rowsPerPass*l_ctuStride + (lid/128)*l_ctuStride + lid%128] = referenceFrame[g_halfCtuBaseIdx + pass*rowsPerPass*frameWidth + (lid/128)*frameWidth + lid%128];
+    }
+
+
+    // Fetch the halo
+   
+    // Upper and lower edges: WIs in 0:127 fetch the top, WIs 128:255 fetch the bottom
+    int currRow = (lid/128)*(65); // Either first or last row of halo
+   
+    if(((g_halfCtuBaseIdx-frameWidth + currRow*frameWidth + lid%128)>0) && ((g_halfCtuBaseIdx-frameWidth + currRow*frameWidth + lid%128)<frameWidth*frameHeight)){
+        // skip 1st col (corner)                        point to 1st row, 2nd col of halo |
+        origHalfCTU[1 + currRow*l_ctuStride + lid%128] = referenceFrame[g_halfCtuBaseIdx-frameWidth + currRow*frameWidth + lid%128];
+    }
+        
+
+    // Left and right edges: WIs 0 and 1 fetch the first row of both columns, WIs 2 and 3 fetch the second row, and so on...
+    currRow = lid/2; // 2 WIs per row
+    int currCol = lid%2; // Either first or last column
+    if((lid<(2*64)) && ((g_halfCtuBaseIdx-1 + currRow*frameWidth + currCol*(l_ctuStride-1))>0) && ((g_halfCtuBaseIdx-1 + currRow*frameWidth + currCol*(l_ctuStride-1))<(frameWidth*frameHeight))){
+        // skip TL corner                                                              left neighbor col |
+        origHalfCTU[l_ctuStride + currRow*l_ctuStride + currCol*(l_ctuStride-1)] = referenceFrame[g_halfCtuBaseIdx-1 + currRow*frameWidth + currCol*(l_ctuStride-1)];
+    }
+        
+
+    // Top-left, top-right, bottom-left, bottom-right
+    if(lid==0){
+        if((g_halfCtuBaseIdx - frameWidth - 1)>0)
+            origHalfCTU[0]          = referenceFrame[g_halfCtuBaseIdx - frameWidth - 1]; // TL
+        if((g_halfCtuBaseIdx - frameWidth + 128)>0)
+            origHalfCTU[129]        = referenceFrame[g_halfCtuBaseIdx - frameWidth + 128]; // TR
+        if((g_halfCtuBaseIdx + 64*frameWidth -1)<(frameWidth*frameHeight))
+            origHalfCTU[65*130]     = referenceFrame[g_halfCtuBaseIdx + 64*frameWidth -1]; // BL
+        if((g_halfCtuBaseIdx + 64*frameWidth + 128)<(1920*1080))
+            origHalfCTU[65*130+129] = referenceFrame[g_halfCtuBaseIdx + 64*frameWidth + 128]; // BR
+    }
+    
+
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    //
+    //      FILTER THE SAMPLES IN LOCAL MEMORY AND SAVE INTO ANOTHER LOCAL BUFFER
+    //
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+
+    int nPassesFilter = (128*64)/wgSize;
+
+    double result;
+    int mask[3][3];
+    
+    currRow = lid/128;
+    currCol = lid%128;
+    rowsPerPass = wgSize/128;
+    short currScale = scale;
+
+
+    haloOffset = 130+1;
+    l_ctuStride = 130;
+    // TODO: Use vload and dot-product operations
+    for(int pass=0; pass<nPassesFilter; pass++){
+        mask[0][0] = origHalfCTU[currRow*l_ctuStride + currCol + haloOffset - l_ctuStride - 1];
+        mask[0][1] = origHalfCTU[currRow*l_ctuStride + currCol + haloOffset - l_ctuStride - 0];
+        mask[0][2] = origHalfCTU[currRow*l_ctuStride + currCol + haloOffset - l_ctuStride + 1];
+
+        mask[1][0] = origHalfCTU[currRow*l_ctuStride + currCol + haloOffset - 1];
+        mask[1][1] = origHalfCTU[currRow*l_ctuStride + currCol + haloOffset - 0];
+        mask[1][2] = origHalfCTU[currRow*l_ctuStride + currCol + haloOffset + 1];
+
+        mask[2][0] = origHalfCTU[currRow*l_ctuStride + currCol + haloOffset + l_ctuStride - 1];
+        mask[2][1] = origHalfCTU[currRow*l_ctuStride + currCol + haloOffset + l_ctuStride - 0];
+        mask[2][2] = origHalfCTU[currRow*l_ctuStride + currCol + haloOffset + l_ctuStride + 1];
+
+        // We only have to deal with the left and top edges. The bottom and right edges are never used as references
+        // Put a zero on the samples of the mask that lie outside the frame
+        if(halfCtuY+currRow==0){ // Top of frame
+            mask[0][0] = 0;
+            mask[0][1] = 0;
+            mask[0][2] = 0;
+            currScale = topScale;
+            isTop = 1;
+        }
+        if(halfCtuY+currRow==frameHeight-1){ // Bottom of frame
+            mask[2][0] = 0;
+            mask[2][1] = 0;
+            mask[2][2] = 0;
+            currScale = bottomScale;
+            isBottom = 1;
+        }
+        if(halfCtuX+currCol==0){ // Left of frame
+            mask[0][0] = 0;
+            mask[1][0] = 0;
+            mask[2][0] = 0;
+            currScale = leftScale;
+            isLeft = 1;
+        }
+        if(halfCtuX+currCol==frameWidth-1){ // Right of frame
+            mask[0][2] = 0;
+            mask[1][2] = 0;
+            mask[2][2] = 0;
+            currScale = rightScale;
+            isRight = 1;
+        }
+
+        // Check explicitly if the block is on the top-left or top-right corners to adjust the scale. The coefficients are already adjusted by entering the 2 conditionals
+        short isTopLeft = (isTop && isLeft);
+        short isTopRight = (isTop && isRight);
+        short isBottomLeft = (isBottom && isLeft);
+        short isBottomRight = (isBottom && isRight);
+        currScale = select(currScale, topLeftScale, isTopLeft);
+        currScale = select(currScale, topRightScale, isTopRight);
+        currScale = select(currScale, bottomLeftScale, isBottomLeft);
+        currScale = select(currScale, bottomRightScale, isBottomRight);
+
+        result = 0;
+
+        for(int i=0; i<3; i++){
+            for(int j=0; j<3; j++){
+                result += mask[i][j]*convKernel[i][j];
+            }
+        }
+
+        result = round(result/currScale);
+    
+        filteredHalfCTU[currRow*128 + currCol] = result;
+
+        currRow += rowsPerPass;
+        currScale = scale;
+        isTop = 0;
+        isBottom = 0;
+        isLeft = 0;
+        isRight = 0;
+
+    }
+
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    //
+    //      OFFLOAD FILTERED SAMPELS INTO GLOBAL MEMORY AGAIN
+    //
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=    
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+
+    // if(lid==0 && halfCtuIdx==31){
+    //     for(int h=0; h<30; h++){
+    //         for(int w=0; w<128; w++){
+    //             printf("%d,", filteredHalfCTU[h*280+w]);
+    //         }
+    //         printf("\n");
+    //     }
+    // }
+
+    
+    int rowsRemaininig = min(64, frameHeight - halfCtuY); // Copy the whole half-CTU or only the remaining rows when the CTU lies partially outside the frame
+    int nPassesOffloadFiltered = 128*rowsRemaininig/wgSize;
+
+    rowsPerPass = wgSize/128;
+    haloOffset = 130+1;
+    l_ctuStride = 130;
+
+
+    // TODO: Increase vertical dimension of reference and filtered frame to avoid if-else in read and writes
+    for(int pass=0; pass<nPassesOffloadFiltered; pass++){
+        // filteredFrame[g_halfCtuBaseIdx + pass*rowsPerPass*frameWidth + (lid/128)*frameWidth + lid%128] = origHalfCTU[haloOffset + pass*rowsPerPass*l_ctuStride + (lid/128)*l_ctuStride + lid%128];
+        filteredFrame[g_halfCtuBaseIdx + pass*rowsPerPass*frameWidth + (lid/128)*frameWidth + lid%128] = filteredHalfCTU[pass*rowsPerPass*128 + (lid/128)*128 + lid%128];
+    }
+
+
+}

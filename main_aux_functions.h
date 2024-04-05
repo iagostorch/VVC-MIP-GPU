@@ -1046,3 +1046,41 @@ void reportReducedPredictionTargetCtu(short *reducedPrediction, int targetCTU, i
         }
     }
 }
+
+void readMemobjsIntoArray_FilteredFrame(cl_command_queue command_queue_common, int frameWidth, int frameHeight, cl_mem filteredFrame_memObj, short *return_filteredFrame){
+
+    int error =  clEnqueueReadBuffer(command_queue_common, filteredFrame_memObj, CL_TRUE, 0, 
+            frameWidth*frameHeight * sizeof(cl_short), return_filteredFrame, 0, NULL, NULL);
+    probe_error(error, (char*)"Error reading return prediction\n");
+    error = clFinish(command_queue_common);
+    probe_error(error, (char*)"Error finishing read\n");
+    
+}
+
+void correctFilteringAtEdges(int frameWidth, int frameHeight, unsigned short *reference_frame, short *return_filteredFrame){
+    int y, x;
+
+    // Top edge
+    y=0;
+    for(x=0; x<frameWidth; x++){
+        return_filteredFrame[y*frameWidth + x] = reference_frame[y*frameWidth + x];
+    }
+    
+    // Bottom edge
+    y=frameHeight-1;
+    for(x=0; x<frameWidth; x++){
+        return_filteredFrame[y*frameWidth + x] = reference_frame[y*frameWidth + x];
+    }
+
+    // Left edge
+    x = 0;
+    for(y=1; y<frameHeight-1; y++){
+        return_filteredFrame[y*frameWidth + x] = reference_frame[y*frameWidth + x];
+    }
+
+    // Right edge
+    x = frameWidth-1;
+    for(y=1; y<frameHeight-1; y++){
+        return_filteredFrame[y*frameWidth + x] = reference_frame[y*frameWidth + x];
+    }
+}
