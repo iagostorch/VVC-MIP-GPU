@@ -2,7 +2,7 @@
 #define CL_TARGET_OPENCL_VERSION 120
 
 
-#define USE_ALTERNATIVE_SAMPLES 0
+#define USE_ALTERNATIVE_SAMPLES 1
 
 
 #include <stdio.h>
@@ -631,18 +631,11 @@ int main(int argc, char *argv[])
 
         // execTime += execTime_reducedBoundaries;
         
-        // Read filtering results from memory objects into host arrays
-        readMemobjsIntoArray_FilteredFrame(command_queue_common, frameWidth, frameHeight, filteredFrame_memObj, return_filteredFrame);
-
-        // // Samples that are on the edges of the frame are not filtered due to lack of neighbors
-        // // Instead of correcting this issue on the GPU, it is corrected by the CPU since it's much faster
-        // // Simply copy the reference samples into filtered samples
-        // correctFilteringAtEdges(frameWidth, frameHeight, reference_frame, return_filteredFrame);
-
-
-
-
-
+        if(enableTerminalReport){
+            // Read filtering results from memory objects into host arrays
+            readMemobjsIntoArray_FilteredFrame(command_queue_common, frameWidth, frameHeight, filteredFrame_memObj, return_filteredFrame);
+        }
+        
         // printf("\n\nFILTERED SAMPLES\n\n");
 
         // for(int h=0; h<frameHeight; h++){
