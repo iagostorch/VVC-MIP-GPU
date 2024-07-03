@@ -4,7 +4,6 @@
 
 #define USE_ALTERNATIVE_SAMPLES 1
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream> 
@@ -320,7 +319,7 @@ int main(int argc, char *argv[])
 
     
     cl_mem referenceFrame_memObj = clCreateBuffer(context, CL_MEM_READ_ONLY,
-                                                  BUFFER_SLOTS * FRAME_SIZE * sizeof(short), NULL, &error_1);
+                                                  N_FRAMES * FRAME_SIZE * sizeof(short), NULL, &error_1);
 
     cl_mem filteredFrame_memObj = clCreateBuffer(context, CL_MEM_READ_ONLY,
                                                   N_FRAMES * FRAME_SIZE * sizeof(short), NULL, &error_2);
@@ -465,7 +464,7 @@ int main(int argc, char *argv[])
 
     */
 
-    error = clEnqueueWriteBuffer(command_queue_write, referenceFrame_memObj, CL_TRUE, 0,
+   error = clEnqueueWriteBuffer(command_queue_write, referenceFrame_memObj, CL_TRUE, 0,
                                 1 * FRAME_SIZE * sizeof(short), reference_frame, 0, NULL, &write_event);
     // error = clWaitForEvents(1, &write_event);
     // probe_error(error, (char*)"Error waiting for write events\n");  
@@ -480,6 +479,7 @@ int main(int argc, char *argv[])
     
 
     writeTime = nanoSeconds;
+    writeTime_filter = nanoSeconds;
     nanoSeconds = 0.0;
 
     probe_error(error, (char*)"Error copying data from memory to buffers LEGACY\n");
@@ -579,8 +579,9 @@ int main(int argc, char *argv[])
 
         itemsPerWG = 256;
 
+
         // Create kernel
-        kernel_filterFrames = clCreateKernel(program_sizeid2, "filterFrame", &error);
+        kernel_filterFrames = clCreateKernel(program_sizeid2, "filterFrame_2d", &error);
         probe_error(error, (char*)"Error creating filterFrame kernel\n"); 
         printf("Performing filterFrame kernel...\n");
 
@@ -610,7 +611,7 @@ int main(int argc, char *argv[])
 
         // Execute the OpenCL kernel on the list
         // These variabels are used to profile the time spend executing the kernel  "clEnqueueNDRangeKernel"
-        global_item_size = nWG_Filter*itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
+        global_item_size = nWG_Filter*itemsPerWG; // frameWidth*frameHeight; // nWG_Filter*itemsPerWG; // TODO: Correct these sizes (global and local) when considering a real scenario
         local_item_size = itemsPerWG;
 
         if(TRACE_POWER)
@@ -619,10 +620,20 @@ int main(int argc, char *argv[])
         error = clEnqueueNDRangeKernel(command_queue_common, kernel_filterFrames, 1, NULL,
                                     &global_item_size, &local_item_size, 0, NULL, &event);
         probe_error(error, (char*)"Error enqueuing kernel\n");
-
+        error = clWaitForEvents(1, &event);
+        probe_error(error, (char*)"Error waiting for events\n");
 
         error = clFinish(command_queue_common);
         probe_error(error, (char*)"Error finishing filterSamples\n");
+
+        clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+        clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+        nanoSeconds = time_end-time_start;
+
+        printf("FilterSamples took %f ms\n\n", nanoSeconds/1000000);
+        executionTime_filter = nanoSeconds;
+        nanoSeconds = 0;
+        
 
 
         if(TRACE_POWER)
@@ -635,7 +646,12 @@ int main(int argc, char *argv[])
             // Read filtering results from memory objects into host arrays
             readMemobjsIntoArray_FilteredFrame(command_queue_common, frameWidth, frameHeight, filteredFrame_memObj, return_filteredFrame);
         }
-        
+
+        printf("TIMING REPORT\n");
+        printf("Write(ns): %f\n", writeTime_filter);
+        printf("Execution(ns):%f\n", executionTime_filter);
+        printf("Read(ns): %f\n", readTime_filter);
+
         // printf("\n\nFILTERED SAMPLES\n\n");
 
         // for(int h=0; h<frameHeight; h++){
@@ -647,6 +663,7 @@ int main(int argc, char *argv[])
         //     printf("\n");
         // }
 
+    // return 1;
 
 #endif
 

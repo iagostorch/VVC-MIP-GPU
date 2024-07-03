@@ -22,7 +22,7 @@
 __constant unsigned char MIP_SHIFT_MATRIX = 6;
 __constant unsigned char MIP_OFFSET_MATRIX = 32;
                         //     idx, row, col
-__constant unsigned short convKernelLib[4][3][3] = {
+__constant unsigned short convKernelLib[5][3][3] = {
   // V0
   {
     {  1,  1,  1  },
@@ -51,6 +51,13 @@ __constant unsigned short convKernelLib[4][3][3] = {
     {  1,  8,  1  },
     {  1,  1,  1  }
   },
+
+  // V4
+  {
+    {  1,  2,  1  },
+    {  2,  4,  2  },
+    {  1,  2,  1  }
+  }
 };
 
 

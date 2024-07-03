@@ -1172,14 +1172,14 @@ __kernel void upsampleDistortion(__global short *reducedPrediction, const int fr
 
 // This kernel is used to fetch the original samples and apply a low-pass filter
 // The filtered samples are used as references during prediction
-__kernel void filterFrame(__global short *referenceFrame, __global short *filteredFrame, const int frameWidth, const int frameHeight, const int kernelIdx, const int rep){
+__kernel void filterFrame_2d(__global short *referenceFrame, __global short *filteredFrame, const int frameWidth, const int frameHeight, const int kernelIdx, const int rep){
     
     int gid = get_global_id(0);
     int wg = get_group_id(0);
     int lid = get_local_id(0);
     int wgSize = get_local_size(0);
 
-    unsigned short convKernel[3][3];
+    unsigned int convKernel[3][3];
     
     convKernel[0][0] = convKernelLib[kernelIdx][0][0];
     convKernel[0][1] = convKernelLib[kernelIdx][0][1];
@@ -1191,16 +1191,16 @@ __kernel void filterFrame(__global short *referenceFrame, __global short *filter
     convKernel[2][1] = convKernelLib[kernelIdx][2][1];
     convKernel[2][2] = convKernelLib[kernelIdx][2][2];
 
-    short scale = convKernel[0][0]+convKernel[0][1]+convKernel[0][2]+convKernel[1][0]+convKernel[1][1]+convKernel[1][2]+convKernel[2][0]+convKernel[2][1]+convKernel[2][2];
-    short topScale = convKernel[1][0]+convKernel[1][1]+convKernel[1][2]+convKernel[2][0]+convKernel[2][1]+convKernel[2][2];
-    short bottomScale = convKernel[0][0]+convKernel[0][1]+convKernel[0][2]+convKernel[1][0]+convKernel[1][1]+convKernel[1][2];
-    short leftScale = convKernel[0][1]+convKernel[0][2]+convKernel[1][1]+convKernel[1][2]+convKernel[2][1]+convKernel[2][2];
-    short rightScale = convKernel[0][0]+convKernel[0][1]+convKernel[1][0]+convKernel[1][1]+convKernel[2][0]+convKernel[2][1];
-    short topLeftScale = convKernel[1][1]+convKernel[1][2]+convKernel[2][1]+convKernel[2][2];
-    short topRightScale = convKernel[1][0]+convKernel[1][1]+convKernel[2][0]+convKernel[2][1];
-    short bottomLeftScale = convKernel[0][1]+convKernel[0][2]+convKernel[1][1]+convKernel[1][2];
-    short bottomRightScale = convKernel[0][0]+convKernel[0][1]+convKernel[1][0]+convKernel[1][1];
-    int isTop=0, isBottom=0, isLeft=0, isRight=0;
+    unsigned int scale = convKernel[0][0]+convKernel[0][1]+convKernel[0][2]+convKernel[1][0]+convKernel[1][1]+convKernel[1][2]+convKernel[2][0]+convKernel[2][1]+convKernel[2][2];
+    unsigned int topScale = convKernel[1][0]+convKernel[1][1]+convKernel[1][2]+convKernel[2][0]+convKernel[2][1]+convKernel[2][2];
+    unsigned int bottomScale = convKernel[0][0]+convKernel[0][1]+convKernel[0][2]+convKernel[1][0]+convKernel[1][1]+convKernel[1][2];
+    unsigned int leftScale = convKernel[0][1]+convKernel[0][2]+convKernel[1][1]+convKernel[1][2]+convKernel[2][1]+convKernel[2][2];
+    unsigned int rightScale = convKernel[0][0]+convKernel[0][1]+convKernel[1][0]+convKernel[1][1]+convKernel[2][0]+convKernel[2][1];
+    unsigned int topLeftScale = convKernel[1][1]+convKernel[1][2]+convKernel[2][1]+convKernel[2][2];
+    unsigned int topRightScale = convKernel[1][0]+convKernel[1][1]+convKernel[2][0]+convKernel[2][1];
+    unsigned int bottomLeftScale = convKernel[0][1]+convKernel[0][2]+convKernel[1][1]+convKernel[1][2];
+    unsigned int bottomRightScale = convKernel[0][0]+convKernel[0][1]+convKernel[1][0]+convKernel[1][1];
+    unsigned int isTop=0, isBottom=0, isLeft=0, isRight=0;
 
     __local unsigned short filteredCTU[128*128];
 
@@ -1238,9 +1238,8 @@ __kernel void filterFrame(__global short *referenceFrame, __global short *filter
     int idx;
 
     for(int pass=0; pass<nPassesFetchOriginal; pass++){
-        origHalfCTU[haloOffset + pass*rowsPerPass*l_ctuStride + (lid/128)*l_ctuStride + lid%128] = referenceFrame[g_halfCtuBaseIdx + pass*rowsPerPass*frameWidth + (lid/128)*frameWidth + lid%128];
+        origHalfCTU[haloOffset + pass*rowsPerPass*l_ctuStride + (lid/128)*l_ctuStride + lid%128] = referenceFrame[rep*frameWidth*frameHeight + g_halfCtuBaseIdx + pass*rowsPerPass*frameWidth + (lid/128)*frameWidth + lid%128];
     }
-
 
     // Fetch the halo
    
@@ -1249,7 +1248,7 @@ __kernel void filterFrame(__global short *referenceFrame, __global short *filter
    
     if(((g_halfCtuBaseIdx-frameWidth + currRow*frameWidth + lid%128)>0) && ((g_halfCtuBaseIdx-frameWidth + currRow*frameWidth + lid%128)<frameWidth*frameHeight)){
         // skip 1st col (corner)                        point to 1st row, 2nd col of halo |
-        origHalfCTU[1 + currRow*l_ctuStride + lid%128] = referenceFrame[g_halfCtuBaseIdx-frameWidth + currRow*frameWidth + lid%128];
+        origHalfCTU[1 + currRow*l_ctuStride + lid%128] = referenceFrame[rep*frameWidth*frameHeight + g_halfCtuBaseIdx-frameWidth + currRow*frameWidth + lid%128];
     }
         
 
@@ -1258,20 +1257,20 @@ __kernel void filterFrame(__global short *referenceFrame, __global short *filter
     int currCol = lid%2; // Either first or last column
     if((lid<(2*64)) && ((g_halfCtuBaseIdx-1 + currRow*frameWidth + currCol*(l_ctuStride-1))>0) && ((g_halfCtuBaseIdx-1 + currRow*frameWidth + currCol*(l_ctuStride-1))<(frameWidth*frameHeight))){
         // skip TL corner                                                              left neighbor col |
-        origHalfCTU[l_ctuStride + currRow*l_ctuStride + currCol*(l_ctuStride-1)] = referenceFrame[g_halfCtuBaseIdx-1 + currRow*frameWidth + currCol*(l_ctuStride-1)];
+        origHalfCTU[l_ctuStride + currRow*l_ctuStride + currCol*(l_ctuStride-1)] = referenceFrame[rep*frameWidth*frameHeight + g_halfCtuBaseIdx-1 + currRow*frameWidth + currCol*(l_ctuStride-1)];
     }
         
 
     // Top-left, top-right, bottom-left, bottom-right
     if(lid==0){
         if((g_halfCtuBaseIdx - frameWidth - 1)>0)
-            origHalfCTU[0]          = referenceFrame[g_halfCtuBaseIdx - frameWidth - 1]; // TL
+            origHalfCTU[0]          = referenceFrame[rep*frameWidth*frameHeight + g_halfCtuBaseIdx - frameWidth - 1]; // TL
         if((g_halfCtuBaseIdx - frameWidth + 128)>0)
-            origHalfCTU[129]        = referenceFrame[g_halfCtuBaseIdx - frameWidth + 128]; // TR
+            origHalfCTU[129]        = referenceFrame[rep*frameWidth*frameHeight + g_halfCtuBaseIdx - frameWidth + 128]; // TR
         if((g_halfCtuBaseIdx + 64*frameWidth -1)<(frameWidth*frameHeight))
-            origHalfCTU[65*130]     = referenceFrame[g_halfCtuBaseIdx + 64*frameWidth -1]; // BL
-        if((g_halfCtuBaseIdx + 64*frameWidth + 128)<(1920*1080))
-            origHalfCTU[65*130+129] = referenceFrame[g_halfCtuBaseIdx + 64*frameWidth + 128]; // BR
+            origHalfCTU[65*130]     = referenceFrame[rep*frameWidth*frameHeight + g_halfCtuBaseIdx + 64*frameWidth -1]; // BL
+        if((g_halfCtuBaseIdx + 64*frameWidth + 128)<(frameWidth*frameHeight))
+            origHalfCTU[65*130+129] = referenceFrame[rep*frameWidth*frameHeight + g_halfCtuBaseIdx + 64*frameWidth + 128]; // BR
     }
     
 
@@ -1286,13 +1285,13 @@ __kernel void filterFrame(__global short *referenceFrame, __global short *filter
 
     int nPassesFilter = (128*64)/wgSize;
 
-    double result;
+    unsigned int result;
     int mask[3][3];
     
     currRow = lid/128;
     currCol = lid%128;
     rowsPerPass = wgSize/128;
-    short currScale = scale;
+    unsigned int currScale = scale;
 
 
     haloOffset = 130+1;
@@ -1343,10 +1342,10 @@ __kernel void filterFrame(__global short *referenceFrame, __global short *filter
         }
 
         // Check explicitly if the block is on the top-left or top-right corners to adjust the scale. The coefficients are already adjusted by entering the 2 conditionals
-        short isTopLeft = (isTop && isLeft);
-        short isTopRight = (isTop && isRight);
-        short isBottomLeft = (isBottom && isLeft);
-        short isBottomRight = (isBottom && isRight);
+        unsigned int isTopLeft = (isTop && isLeft);
+        unsigned int isTopRight = (isTop && isRight);
+        unsigned int isBottomLeft = (isBottom && isLeft);
+        unsigned int isBottomRight = (isBottom && isRight);
         currScale = select(currScale, topLeftScale, isTopLeft);
         currScale = select(currScale, topRightScale, isTopRight);
         currScale = select(currScale, bottomLeftScale, isBottomLeft);
@@ -1360,8 +1359,8 @@ __kernel void filterFrame(__global short *referenceFrame, __global short *filter
             }
         }
 
-        result = round(result/currScale);
-    
+        result = (result + currScale/2)/currScale;
+
         filteredHalfCTU[currRow*128 + currCol] = result;
 
         currRow += rowsPerPass;
@@ -1403,7 +1402,7 @@ __kernel void filterFrame(__global short *referenceFrame, __global short *filter
     // TODO: Increase vertical dimension of reference and filtered frame to avoid if-else in read and writes
     for(int pass=0; pass<nPassesOffloadFiltered; pass++){
         // filteredFrame[g_halfCtuBaseIdx + pass*rowsPerPass*frameWidth + (lid/128)*frameWidth + lid%128] = origHalfCTU[haloOffset + pass*rowsPerPass*l_ctuStride + (lid/128)*l_ctuStride + lid%128];
-        filteredFrame[g_halfCtuBaseIdx + pass*rowsPerPass*frameWidth + (lid/128)*frameWidth + lid%128] = filteredHalfCTU[pass*rowsPerPass*128 + (lid/128)*128 + lid%128];
+        filteredFrame[rep*frameWidth*frameHeight + g_halfCtuBaseIdx + pass*rowsPerPass*frameWidth + (lid/128)*frameWidth + lid%128] = filteredHalfCTU[pass*rowsPerPass*128 + (lid/128)*128 + lid%128];
     }
 
 

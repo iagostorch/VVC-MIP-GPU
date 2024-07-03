@@ -37,6 +37,10 @@ float execTime_upsampleDistortion_SizeId1 = 0;
 float execTime_upsampleDistortion_SizeId0 = 0;
 float totalGpuTime = 0; // Write, Exec, Read
 
+float writeTime_filter = 0;
+float executionTime_filter = 0;
+float readTime_filter = 0;
+
 float execTime = 0;
 
 // used for the timestamps
@@ -1049,11 +1053,22 @@ void reportReducedPredictionTargetCtu(short *reducedPrediction, int targetCTU, i
 
 void readMemobjsIntoArray_FilteredFrame(cl_command_queue command_queue_common, int frameWidth, int frameHeight, cl_mem filteredFrame_memObj, short *return_filteredFrame){
 
+    cl_ulong read_time_start, read_time_end;
+    cl_event read_event;
+    double nanoSeconds;
+
     int error =  clEnqueueReadBuffer(command_queue_common, filteredFrame_memObj, CL_TRUE, 0, 
-            frameWidth*frameHeight * sizeof(cl_short), return_filteredFrame, 0, NULL, NULL);
+            frameWidth*frameHeight * sizeof(cl_short), return_filteredFrame, 0, NULL, &read_event);
     probe_error(error, (char*)"Error reading return prediction\n");
     error = clFinish(command_queue_common);
     probe_error(error, (char*)"Error finishing read\n");
+
+
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(read_time_start), &read_time_start, NULL);
+    clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(read_time_end), &read_time_end, NULL);
+    nanoSeconds = read_time_end-read_time_start;
+
+    readTime_filter = nanoSeconds;
     
 }
 
