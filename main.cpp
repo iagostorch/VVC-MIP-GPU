@@ -504,7 +504,7 @@ int main(int argc, char *argv[])
     // Used to export the kernel results into proper files or the terminal
     string exportFileName;
 
-    int enableTerminalReport = 0;
+    int enableTerminalReport = 1;
     int reportReducedBoundaries = 1;
     int reportCompleteBoundaries = 1;
     int reportReducedPrediction = 1;
@@ -533,8 +533,7 @@ int main(int argc, char *argv[])
     // TODO: Correct to the proper number of WGs and CTUs
     // Currently, each WG will process one CTU partitioned into one CU size, and produce the reduced boundaries for each one of the CUs
     nWG = nCTUs*ALL_NUM_CU_SIZES;
-    int nWG_Filter = nCTUs*2;
-
+    
     debug_mem_obj = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                    nWG * itemsPerWG_upsampleDistortion * 4 * sizeof(cl_short), NULL, &error_1);
 
@@ -578,10 +577,16 @@ int main(int argc, char *argv[])
         // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
         itemsPerWG = 256;
+        int nWG_Filter;
 
+        nWG_Filter = nCTUs*2; // Adjust based on the filtering kernel. nCTUs*2 or nCTUs*4
 
         // Create kernel
-        kernel_filterFrames = clCreateKernel(program_sizeid2, "filterFrame_2d", &error);
+        
+        //                                    When using filterFrame_2d, int or float, nWG_Filter MUST BE nCTUs*2
+        //                                       When using filterFrame_1d_float, nWG_Filter MUST BE nCTUs*4
+        //                                                             |
+        kernel_filterFrames = clCreateKernel(program_sizeid2, "filterFrame_2d_float", &error);
         probe_error(error, (char*)"Error creating filterFrame kernel\n"); 
         printf("Performing filterFrame kernel...\n");
 
@@ -595,7 +600,7 @@ int main(int argc, char *argv[])
         //cout << "-- Preferred WG size multiple " << preferred_size << endl;
         //cout << "-- Maximum WG size " << maximum_size << endl;
 
-        int k=2;
+        int k=4;
 
         currFrame = curr;
         // Set the arguments of the kernel initBoundaries
@@ -662,7 +667,6 @@ int main(int argc, char *argv[])
         //     }
         //     printf("\n");
         // }
-
     // return 1;
 
 #endif
