@@ -4,6 +4,8 @@
 
 #define USE_ALTERNATIVE_SAMPLES 1
 
+#define PERFORM_CPU_FILTERING 1
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream> 
@@ -291,6 +293,19 @@ int main(int argc, char *argv[])
 
     if(TRACE_POWER)
         print_timestamp((char*) "FINISH READ SAMPLES .csv");
+
+
+#if USE_ALTERNATIVE_SAMPLES || PERFORM_CPU_FILTERING
+    int kernelIdx = 4;
+#endif
+
+
+#if PERFORM_CPU_FILTERING
+    int maxThreads = 128;
+    int reportFilterResults = 1;
+    profileCpuFiltering(reference_frame, frameWidth, frameHeight, kernelIdx, maxThreads, reportFilterResults);
+#endif
+
 
     // These buffers are used to store the reduced boundaries for all CU sizes
     error = 0;
@@ -600,15 +615,13 @@ int main(int argc, char *argv[])
         //cout << "-- Preferred WG size multiple " << preferred_size << endl;
         //cout << "-- Maximum WG size " << maximum_size << endl;
 
-        int k=4;
-
         currFrame = curr;
         // Set the arguments of the kernel initBoundaries
         error_1 = clSetKernelArg(kernel_filterFrames, 0, sizeof(cl_mem), (void *)&referenceFrame_memObj);
         error_1 = clSetKernelArg(kernel_filterFrames, 1, sizeof(cl_mem), (void *)&filteredFrame_memObj);
         error_1 |= clSetKernelArg(kernel_filterFrames, 2, sizeof(cl_int), (void *)&frameWidth);
         error_1 |= clSetKernelArg(kernel_filterFrames, 3, sizeof(cl_int), (void *)&frameHeight);
-        error_1 |= clSetKernelArg(kernel_filterFrames, 4, sizeof(cl_int), (void *)&k);
+        error_1 |= clSetKernelArg(kernel_filterFrames, 4, sizeof(cl_int), (void *)&kernelIdx);
         error_1 |= clSetKernelArg(kernel_filterFrames, 5, sizeof(cl_int), (void *)&currFrame);
 
 
@@ -656,8 +669,9 @@ int main(int argc, char *argv[])
         printf("Write(ns): %f\n", writeTime_filter);
         printf("Execution(ns):%f\n", executionTime_filter);
         printf("Read(ns): %f\n", readTime_filter);
+        printf("TotalFilterTime(ms): %f\n", (writeTime_filter+executionTime_filter+readTime_filter)/1000000 );
 
-        // printf("\n\nFILTERED SAMPLES\n\n");
+        // printf("\n\nGPU FILTERED SAMPLES\n\n");
 
         // for(int h=0; h<frameHeight; h++){
         //     for(int w=0; w<frameWidth; w++){

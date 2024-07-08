@@ -4,6 +4,8 @@
 
 #define BUFFER_SLOTS 2 // Numbe of frames stored at once in memory (reference samples, distortion, and metadata)
 
+#define MULTIPLIER_CPU_FILTER 1
+
 int N_FRAMES = -1; // Overwritten by sys.argv
 
 #include <CL/cl.h>
@@ -16,6 +18,7 @@ int N_FRAMES = -1; // Overwritten by sys.argv
 #include <math.h>
 #include <time.h>
 #include <sys/time.h>
+#include <omp.h>
 
 #include "constants.h"
 
@@ -1098,4 +1101,373 @@ void correctFilteringAtEdges(int frameWidth, int frameHeight, unsigned short *re
     for(y=1; y<frameHeight-1; y++){
         return_filteredFrame[y*frameWidth + x] = reference_frame[y*frameWidth + x];
     }
+}
+
+void optFilterCpuInt(unsigned short *input, unsigned short *output, int width, int height, int kernelIdx){
+
+    unsigned short kernel[3][3];
+    
+    for(int i=0; i<3; i++){
+        for(int j=0; j<3; j++){
+            kernel[i][j] = convKernelLib[kernelIdx][i][j];
+        }            
+    }
+
+    // printf(">> INITIALIZED THE COEFFS\n");
+
+    int fullScale = 0;   for(int i=0; i<3; i++) for(int j=0; j<3; j++) fullScale += kernel[i][j];
+    int edgeScale = 0;   for(int i=0; i<2; i++) for(int j=0; j<3; j++) edgeScale += kernel[i][j];
+    int cornerScale = 0; for(int i=0; i<2; i++) for(int j=0; j<2; j++) cornerScale += kernel[i][j];
+    int result = 0;
+    int currScale = 0;
+
+    int h,w,i,j;
+    for(int f=0; f<MULTIPLIER_CPU_FILTER; f++){
+        for(h=1; h<height-1; h++){
+            for(w=1; w<width-1; w++){
+                
+                currScale = fullScale;
+
+                for(i=-1; i<=1; i++){
+                    for(j=-1; j<=1; j++){
+                        result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                    }
+                }
+
+                output[h*width+w] = (result + currScale/2)/currScale;
+                result = 0.0;
+            }
+        }
+
+        // printf(">> FILTERED CENTER\n");
+
+
+        // First line, except corners. Without top coeffs
+        h=0;
+        currScale = edgeScale;
+        for(w=1; w<width-1; w++){
+            result = 0;
+            for(i=0; i<=1; i++){
+                for(j=-1; j<=1; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }      
+            output[h*width+w] = (result + currScale/2)/currScale;  
+        }
+
+        // printf(">> FILTERED TOP\n");
+
+        // Last line, except corners. Without bottom coeffs
+        h=height-1;
+        currScale = edgeScale;
+        for(w=1; w<width-1; w++){
+            result = 0;
+            for(i=-1; i<=0; i++){
+                for(j=-1; j<=1; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }        
+            output[h*width+w] = (result + currScale/2)/currScale;
+        }    
+
+        // printf(">> FILTERED bottom\n");
+
+        // First column, except corners. Without left coeffs
+        w=0;
+        currScale = edgeScale;
+        for(h=1; h<height-1; h++){
+            result = 0;
+            for(i=-1; i<=1; i++){
+                for(j=0; j<=1; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }  
+            output[h*width+w] = (result + currScale/2)/currScale;      
+        }
+
+        // printf(">> FILTERED LEFT\n");
+
+        // Last column, except corners. Without right coeffs
+        w=width-1;
+        currScale = edgeScale;
+        for(h=1; h<height-1; h++){
+            result = 0;
+            for(i=-1; i<=1; i++){
+                for(j=-1; j<=0; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }   
+            output[h*width+w] = (result + currScale/2)/currScale;     
+        }
+
+        // printf(">> FILTERED RIGHT\n");
+
+        // Corners
+        // Top-left
+        result=0; w=0; h=0; currScale=cornerScale;
+        for(i=0; i<=1; i++)
+            for(j=0; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+
+        // Top-right
+        result=0; w=width-1; h=0; currScale=cornerScale;
+        for(i=0; i<=1; i++)
+            for(j=-1; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        // Bottom-left
+        result=0; w=0; h=height-1; currScale=cornerScale;
+        for(i=-1; i<=0; i++)
+            for(j=0; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        // Top-left
+        result=0; w=width-1; h=height-1; currScale=cornerScale;
+        for(i=-1; i<=0; i++)
+            for(j=-1; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = (result + currScale/2)/currScale;         
+
+        // printf(">> FILTERED EDGES\n");
+
+    }    
+
+}
+
+void parallelOptFilterCpuInt(unsigned short *input, unsigned short *output, int width, int height, int kernelIdx, int nThreads){
+
+    int kernel[3][3];
+    
+    for(int i=0; i<3; i++){
+        for(int j=0; j<3; j++){
+            kernel[i][j] = convKernelLib[kernelIdx][i][j];
+        }
+            
+    }
+
+
+    int fullScale = 0;   for(int i=0; i<3; i++) for(int j=0; j<3; j++) fullScale += kernel[i][j];
+    int edgeScale = 0;   for(int i=0; i<2; i++) for(int j=0; j<3; j++) edgeScale += kernel[i][j];
+    int cornerScale = 0; for(int i=0; i<2; i++) for(int j=0; j<2; j++) cornerScale += kernel[i][j];
+    int result = 0;
+    int currScale = 0;
+
+    int h,w,i,j;
+    for(int f=0; f<MULTIPLIER_CPU_FILTER; f++){
+        currScale = fullScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(h=1; h<height-1; h++){
+            for(w=1; w<width-1; w++){
+                result = 0.0;
+                for(i=-1; i<=1; i++){
+                    for(j=-1; j<=1; j++){
+                        result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                    }
+                }
+                output[h*width+w] = (result + currScale/2)/currScale;
+            }
+        }
+
+        // First or last lines, except corners. Without top or bottom coeffs
+        currScale = edgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(w=1; w<width-1; w++){
+            // Top
+            h=0;
+            result = 0;
+            for(i=0; i<=1; i++){
+                for(j=-1; j<=1; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }      
+            output[h*width+w] = (result + currScale/2)/currScale;  
+
+            // Bottom
+            h=height-1;
+            result = 0;
+            for(i=-1; i<=0; i++){
+                for(j=-1; j<=1; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }      
+            output[h*width+w] = (result + currScale/2)/currScale;  
+        }
+
+        // // Last line, except corners. Without bottom coeffs
+        // h=height-1;
+        // currScale = edgeScale;
+        // #pragma omp parallel for private(result, w, i, j) num_threads(nThreads)
+        // for(w=1; w<width-1; w++){
+        //     result = 0;
+        //     for(i=-1; i<=0; i++){
+        //         for(j=-1; j<=1; j++){
+        //             result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+        //         }
+        //     }        
+        //     output[h*width+w] = (result + currScale/2)/currScale;
+        // }    
+
+        // First or last column, except corners. Without left or right coeffs
+        currScale = edgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(h=1; h<height-1; h++){
+            // Left
+            w=0;
+            result = 0;
+            for(i=-1; i<=1; i++){
+                for(j=0; j<=1; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }  
+            output[h*width+w] = (result + currScale/2)/currScale;      
+
+            // Right
+            w=width-1;
+            result = 0;
+            for(i=-1; i<=1; i++){
+                for(j=-1; j<=0; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }  
+            output[h*width+w] = (result + currScale/2)/currScale;      
+        }
+
+        // // Last column, except corners. Without right coeffs
+        // w=width-1;
+        // currScale = edgeScale;
+        // #pragma omp parallel for private(result, h, i, j) num_threads(nThreads)
+        // for(h=1; h<height-1; h++){
+        //     result = 0;
+        //     for(i=-1; i<=1; i++){
+        //         for(j=-1; j<=0; j++){
+        //             result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+        //         }
+        //     }   
+        //     output[h*width+w] = (result + currScale/2)/currScale;     
+        // }
+
+        // Corners
+        // Top-left
+        result=0; w=0; h=0; currScale=cornerScale;
+        for(i=0; i<=1; i++)
+            for(j=0; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+
+        // Top-right
+        result=0; w=width-1; h=0; currScale=cornerScale;
+        for(i=0; i<=1; i++)
+            for(j=-1; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        // Bottom-left
+        result=0; w=0; h=height-1; currScale=cornerScale;
+        for(i=-1; i<=0; i++)
+            for(j=0; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        // Top-left
+        result=0; w=width-1; h=height-1; currScale=cornerScale;
+        for(i=-1; i<=0; i++)
+            for(j=-1; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = (result + currScale/2)/currScale;         
+
+    }    
+
+}
+
+void profileCpuFiltering(unsigned short *input, int frameWidth, int frameHeight, int kernelIdx, int maxThreads, int reportFilterResults){
+    printf("profileCpuFiltering\n");
+    
+    unsigned short *cpu_filtered_frame = (unsigned short *)malloc(sizeof(short) * frameWidth*frameHeight * N_FRAMES);
+    unsigned short *cpu_filtered_frame_parallel = (unsigned short *)malloc(sizeof(short) * frameWidth*frameHeight * N_FRAMES);
+    
+    struct timeval tvCpu;
+    struct tm *tmCpu;
+    DateAndTime startFilter, finishFilter; // Used to track the processing time
+
+    gettimeofday(&tvCpu, NULL);  
+    tmCpu = localtime(&tvCpu.tv_sec);
+    startFilter.hour = tmCpu->tm_hour;
+    startFilter.minutes = tmCpu->tm_min;
+    startFilter.seconds = tmCpu->tm_sec;
+    startFilter.msec = (int) (tvCpu.tv_usec / 1000);
+
+
+    print_timestamp((char*) "START CPU FILTER OPT INT SERIAL");    
+    optFilterCpuInt(input, cpu_filtered_frame, frameWidth, frameHeight, kernelIdx);
+       
+    gettimeofday(&tvCpu, NULL);
+    tmCpu = localtime(&tvCpu.tv_sec);
+    finishFilter.hour = tmCpu->tm_hour;
+    finishFilter.minutes = tmCpu->tm_min;
+    finishFilter.seconds = tmCpu->tm_sec;
+    finishFilter.msec = (int) (tvCpu.tv_usec / 1000);
+    timeDifference = computeTimeDifferenceMs(startFilter, finishFilter);
+
+    printf(">> SERIAL CPU FILTER [INT] took %d ms\n", timeDifference);
+
+    print_timestamp((char*) "END CPU FILTER OPT INT SERIAL");    
+
+
+    print_timestamp((char*) "START CPU FILTER OPT INT PARALLEL");    
+
+    for(int t=1; t<=maxThreads; t++){
+        omp_set_num_threads(t);
+        
+        gettimeofday(&tvCpu, NULL);  
+        tmCpu = localtime(&tvCpu.tv_sec);
+        startFilter.hour = tmCpu->tm_hour;
+        startFilter.minutes = tmCpu->tm_min;
+        startFilter.seconds = tmCpu->tm_sec;
+        startFilter.msec = (int) (tvCpu.tv_usec / 1000);
+
+        parallelOptFilterCpuInt(input, cpu_filtered_frame_parallel, frameWidth, frameHeight, kernelIdx, t);
+
+        gettimeofday(&tvCpu, NULL);
+        tmCpu = localtime(&tvCpu.tv_sec);
+        finishFilter.hour = tmCpu->tm_hour;
+        finishFilter.minutes = tmCpu->tm_min;
+        finishFilter.seconds = tmCpu->tm_sec;
+        finishFilter.msec = (int) (tvCpu.tv_usec / 1000);
+        timeDifference = computeTimeDifferenceMs(startFilter, finishFilter);
+
+        printf(">> PARALLEL [%d threads] CPU FILTER [INT] took %d ms\n", t, timeDifference);        
+        
+    }
+
+    print_timestamp((char*) "END CPU FILTER OPT INT PARALLEL");          
+
+    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+    //
+    // Report
+    if(reportFilterResults){
+        printf("CPU FILTERED SAMPLES SERIAL\n");
+        for(int i=0; i<frameHeight; i++){
+            for(int j=0; j<frameWidth; j++){
+                printf("%d,",cpu_filtered_frame[i*frameWidth+j]);
+            }
+            printf("\n");
+        }
+
+        printf("CPU FILTERED SAMPLES PARALLEL\n");
+        for(int i=0; i<frameHeight; i++){
+            for(int j=0; j<frameWidth; j++){
+                printf("%d,",cpu_filtered_frame_parallel[i*frameWidth+j]);
+            }
+            printf("\n");
+        }
+    }
+    
+    free(cpu_filtered_frame);
+    free(cpu_filtered_frame_parallel);
+
 }
