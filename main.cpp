@@ -4,7 +4,7 @@
 
 #define USE_ALTERNATIVE_SAMPLES 1
 
-#define PERFORM_CPU_FILTERING 1
+#define PERFORM_CPU_FILTERING 0
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -296,7 +296,7 @@ int main(int argc, char *argv[])
 
 
 #if USE_ALTERNATIVE_SAMPLES || PERFORM_CPU_FILTERING
-    int kernelIdx = 4;
+    int kernelIdx = 0;
 #endif
 
 
@@ -594,14 +594,14 @@ int main(int argc, char *argv[])
         itemsPerWG = 256;
         int nWG_Filter;
 
-        nWG_Filter = nCTUs*2; // Adjust based on the filtering kernel. nCTUs*2 or nCTUs*4
+        nWG_Filter = nCTUs*4; // Adjust based on the filtering kernel. nCTUs*2 or nCTUs*4
 
         // Create kernel
         
         //                                    When using filterFrame_2d, int or float, nWG_Filter MUST BE nCTUs*2
         //                                       When using filterFrame_1d_float, nWG_Filter MUST BE nCTUs*4
         //                                                             |
-        kernel_filterFrames = clCreateKernel(program_sizeid2, "filterFrame_2d_float", &error);
+        kernel_filterFrames = clCreateKernel(program_sizeid2, "filterFrame_2d_float_5x5_quarterCtu", &error);
         probe_error(error, (char*)"Error creating filterFrame kernel\n"); 
         printf("Performing filterFrame kernel...\n");
 
@@ -671,17 +671,17 @@ int main(int argc, char *argv[])
         printf("Read(ns): %f\n", readTime_filter);
         printf("TotalFilterTime(ms): %f\n", (writeTime_filter+executionTime_filter+readTime_filter)/1000000 );
 
-        // printf("\n\nGPU FILTERED SAMPLES\n\n");
+        printf("\n\nGPU FILTERED SAMPLES\n\n");
 
-        // for(int h=0; h<frameHeight; h++){
-        //     for(int w=0; w<frameWidth; w++){
-        //         // reference_frame
-        //         // return_filteredFrame
-        //         printf("%hd,", return_filteredFrame[h*frameWidth+w]);
-        //     }
-        //     printf("\n");
-        // }
-    // return 1;
+        for(int h=0; h<frameHeight; h++){
+            for(int w=0; w<frameWidth; w++){
+                // reference_frame
+                // return_filteredFrame
+                printf("%hd,", return_filteredFrame[h*frameWidth+w]);
+            }
+            printf("\n");
+        }
+    return 1;
 
 #endif
 

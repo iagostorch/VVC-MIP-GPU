@@ -21,6 +21,52 @@
 
 __constant unsigned char MIP_SHIFT_MATRIX = 6;
 __constant unsigned char MIP_OFFSET_MATRIX = 32;
+
+// Idx of corner and interface samples inside the halfCtu used in filterFrame_2d_float_5x5 kernel
+// This servs as a lookup table to set predefined values
+__constant int cornerIdxLUT_5x5[16] = { // 132 is l_ctuStride
+      0,
+      1,
+      132,
+      132+1,
+      132-1,
+      132-2,
+      2*132-1,
+      2*132-2,
+
+      67*132,
+      67*132+1,
+      66*132,
+      66*132+1,
+      68*132 -1,
+      68*132 -2,
+      67*132 - 1,
+      67*132 - 2,
+};
+
+
+__constant int cornerIdxLUT_5x5_quarterCtu[16] = { // 132 is l_ctuStride
+      0,
+      1,
+      132,
+      132+1,
+      132-1,
+      132-2,
+      2*132-1,
+      2*132-2,
+
+      35*132,
+      35*132+1,
+      34*132,
+      34*132+1,
+      36*132 -1,
+      36*132 -2,
+      35*132 - 1,
+      35*132 - 2,      
+};
+
+
+
                         //     idx, row, col
 __constant unsigned short convKernelLib[5][3][3] = {
   // V0
@@ -60,6 +106,44 @@ __constant unsigned short convKernelLib[5][3][3] = {
   }
 };
 
+__constant float convKernelLib_5x5_float[2][5][5] = {
+  // V0
+  {
+    { 0.04 , 0.04 , 0.04 , 0.04 , 0.04 },
+    { 0.04 , 0.04 , 0.04 , 0.04 , 0.04 },
+    { 0.04 , 0.04 , 0.04 , 0.04 , 0.04 },
+    { 0.04 , 0.04 , 0.04 , 0.04 , 0.04 },
+    { 0.04 , 0.04 , 0.04 , 0.04 , 0.04 }
+  },
+  // V1
+  {
+    { 0.0345 , 0.0345 , 0.0345 , 0.0345 , 0.0345},
+    { 0.0345 , 0.0345 , 0.0345 , 0.0345 , 0.0345},
+    { 0.0345 , 0.0345 , 0.1724 , 0.0345 , 0.0345},
+    { 0.0345 , 0.0345 , 0.0345 , 0.0345 , 0.0345},
+    { 0.0345 , 0.0345 , 0.0345 , 0.0345 , 0.0345}
+  }
+};
+
+__constant unsigned short convKernelLib_5x5[2][5][5] = {
+  // V0
+  {
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 }
+  },
+  
+  // V1
+  {
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  5,  1,  1 },
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 }
+  }
+};
 
 enum CU_SIZE {
     _64x64 = 0,
