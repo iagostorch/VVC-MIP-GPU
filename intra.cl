@@ -1636,6 +1636,193 @@ __kernel void filterFrame_2d_float(__global short *referenceFrame, __global shor
 
 }
 
+__kernel void filterFrame_2d_float_quarterCtu(__global short *referenceFrame, __global short *filteredFrame, const int frameWidth, const int frameHeight, const int kernelIdx, const int rep){
+    
+    int gid = get_global_id(0);
+    int wg = get_group_id(0);
+    int lid = get_local_id(0);
+    int wgSize = get_local_size(0);
+
+    float convKernel[3][3];
+    
+    for(int i=0; i<3; i++){
+        for(int j=0; j<3; j++){
+            convKernel[i][j] = (float) convKernelLib[kernelIdx][i][j];        
+        }
+    }
+
+    float fullScale = 0; for(int i=-1; i<=1; i++) for(int j=-1; j<=1; j++) fullScale+=convKernel[1+i][1+j];
+
+    int quarterCtuColumns = ceil(frameWidth/128.0);
+    int quarterCtuRows = ceil(frameHeight/32.0);
+
+    // int ctuIdx = wg; //wg;
+    int quarterCtuIdx = wg;
+    int quarterCtuX = (quarterCtuIdx % quarterCtuColumns)*128;
+    int quarterCtuY = (quarterCtuIdx / quarterCtuColumns)*32;
+
+
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    //
+    //      FETCH THE ORIGINAL SAMPLES FROM __global INTO __local MEMORY
+    //
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    
+    // Each WG processes one CTU. It requires a halo of 1 samples around the input
+    __local short origQuarterCTU[(128+1+1)*(32+1+1)];
+    __local short filteredQuarterCTU[128*32];
+
+
+    // Fetch the inner region of the CTU, without the halo  
+
+    int nPassesFetchOriginal = 128*32/wgSize;
+    int rowsPerPass = wgSize/128;
+    int g_quarterCtuBaseIdx = quarterCtuY*frameWidth + quarterCtuX;
+    int haloOffset = 130+1;
+    int l_ctuStride = 130;
+    int idx;
+
+    for(int pass=0; pass<nPassesFetchOriginal; pass++){
+        if(quarterCtuY + lid/128 + pass*rowsPerPass < frameHeight){
+            origQuarterCTU[haloOffset + pass*rowsPerPass*l_ctuStride + (lid/128)*l_ctuStride + lid%128] = referenceFrame[rep*frameWidth*frameHeight + g_quarterCtuBaseIdx + pass*rowsPerPass*frameWidth + (lid/128)*frameWidth + lid%128];
+        }
+        else{
+            origQuarterCTU[haloOffset + pass*rowsPerPass*l_ctuStride + (lid/128)*l_ctuStride + lid%128] = -1;    
+        }
+        
+    }
+
+    // Fetch the halo
+
+    int currRow, currCol;
+   
+    // HALO AT THE TOP AND BOTTOM
+    currRow = lid/128;
+    currRow = currRow*(32+1); // Either first or last row
+    origQuarterCTU[1 + currRow*l_ctuStride + lid%128] = -1;
+
+    if(( (g_quarterCtuBaseIdx-1*frameWidth + currRow*frameWidth + lid%128)>0) && 
+         ((g_quarterCtuBaseIdx-1*frameWidth + currRow*frameWidth + lid%128)<frameWidth*frameHeight) 
+         //&& (quarterCtuY+currRow>0)
+         ){
+        // skip 1st col (corner)                        point to 1st row, 2nd col of halo |
+        origQuarterCTU[1 + currRow*l_ctuStride + lid%128] = referenceFrame[rep*frameWidth*frameHeight + g_quarterCtuBaseIdx-1*frameWidth + currRow*frameWidth + lid%128];
+    }
+
+    // One col of left and right edges: WIs in 0:1 fetch the first row of all columns, WIs 2:3 fetch the second row, and so on...
+    currRow = lid/2;
+    currCol = (lid%2) * 129; // Either first or last column
+    if(lid<(1*2*32))
+        origQuarterCTU[1*l_ctuStride + currRow*l_ctuStride + currCol] = -1;
+
+    if( (lid<(1*2*32)) && 
+        ((g_quarterCtuBaseIdx-1 + currRow*frameWidth + currCol)>0) &&
+        ((g_quarterCtuBaseIdx-1 + currRow*frameWidth + currCol)<(frameWidth*frameHeight)) && 
+        (quarterCtuX-1+currCol>0) &&
+        (quarterCtuX-1+currCol<frameWidth-1) ){      
+        // skip TL corner                                                              left neighbor col |
+        origQuarterCTU[1*l_ctuStride + currRow*l_ctuStride + currCol] = referenceFrame[rep*frameWidth*frameHeight + g_quarterCtuBaseIdx-1 + currRow*frameWidth + currCol];
+    }
+
+    if(lid==0){
+        origQuarterCTU[0]          = -1;
+        origQuarterCTU[129]        = -1;
+        origQuarterCTU[33*130]     = -1;
+        origQuarterCTU[33*130+129] = -1;
+    }
+
+    // Top-left, top-right, bottom-left, bottom-right
+    if(lid==0){
+        // if((g_quarterCtuBaseIdx - frameWidth - 1)>0)
+        if(quarterCtuY>0 && quarterCtuX>0)
+            origQuarterCTU[0]          = referenceFrame[rep*frameWidth*frameHeight + g_quarterCtuBaseIdx - frameWidth - 1]; // TL
+        // if((g_quarterCtuBaseIdx - frameWidth + 128)>0)
+        if(quarterCtuY>0 && quarterCtuX+128<frameWidth-1)
+            origQuarterCTU[129]        = referenceFrame[rep*frameWidth*frameHeight + g_quarterCtuBaseIdx - frameWidth + 128]; // TR
+        // if((g_quarterCtuBaseIdx + 64*frameWidth -1)<(frameWidth*frameHeight))
+        if(quarterCtuY+32<frameHeight-1 && quarterCtuX>0)
+            origQuarterCTU[33*130]     = referenceFrame[rep*frameWidth*frameHeight + g_quarterCtuBaseIdx + 32*frameWidth -1]; // BL
+        // if((g_quarterCtuBaseIdx + 64*frameWidth + 128)<(frameWidth*frameHeight))
+        if(quarterCtuY+32<frameHeight-1 && quarterCtuX+128<frameWidth-1)
+            origQuarterCTU[33*130+129] = referenceFrame[rep*frameWidth*frameHeight + g_quarterCtuBaseIdx + 32*frameWidth + 128]; // BR
+    }
+
+
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    //
+    //      FILTER THE SAMPLES IN LOCAL MEMORY AND SAVE INTO ANOTHER LOCAL BUFFER
+    //
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    int nPassesFilter = (128*32)/wgSize;
+
+    float result;
+    int mask[3][3];
+    
+    currRow = lid/128;
+    currCol = lid%128;
+    rowsPerPass = wgSize/128;
+    float currScale = fullScale;
+
+
+    haloOffset = 130+1;
+    l_ctuStride = 130;
+    // TODO: Use vload and dot-product operations
+    for(int pass=0; pass<nPassesFilter; pass++){
+
+        for(int dRow=-1; dRow<=1; dRow++){
+            for(int dCol=-1; dCol<=1; dCol++){
+                mask[1+dRow][1+dCol] = origQuarterCTU[haloOffset + currRow*l_ctuStride + currCol +  dRow*l_ctuStride + dCol];
+                currScale = select(currScale, currScale-convKernel[1+dRow][1+dCol], mask[1+dRow][1+dCol]<0);
+                mask[1+dRow][1+dCol] = select(mask[1+dRow][1+dCol], 0, mask[1+dRow][1+dCol]<0);
+            }
+        }
+
+        result = 0;
+
+        for(int i=0; i<3; i++){
+            for(int j=0; j<3; j++){
+                result += mask[i][j]*convKernel[i][j];
+                // if(quarterCtuX+currCol==0 && quarterCtuY+currRow==31)
+                //     printf("Result %f  || scale = %f\n", result, currScale);
+            }
+        }
+
+        result = round(result/currScale);
+
+        filteredQuarterCTU[currRow*128 + currCol] = result;
+
+        currRow += rowsPerPass;
+        currScale = fullScale;
+    }
+
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    //
+    //      OFFLOAD FILTERED SAMPELS INTO GLOBAL MEMORY AGAIN
+    //
+    //  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=    
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+    
+    int rowsRemaininig = min(32, frameHeight - quarterCtuY); // Copy the whole quarter-CTU or only the remaining rows when the CTU lies partially outside the frame
+    int nPassesOffloadFiltered = 128*rowsRemaininig/wgSize;
+
+    rowsPerPass = wgSize/128;
+    haloOffset = 130+1;
+    l_ctuStride = 130;
+
+
+    // TODO: Increase vertical dimension of reference and filtered frame to avoid if-else in read and writes
+    for(int pass=0; pass<nPassesOffloadFiltered; pass++){
+        filteredFrame[rep*frameWidth*frameHeight + g_quarterCtuBaseIdx + pass*rowsPerPass*frameWidth + (lid/128)*frameWidth + lid%128] = filteredQuarterCTU[pass*rowsPerPass*128 + (lid/128)*128 + lid%128];
+    }
+
+
+}
+
 // This kernel is used to fetch the original samples and apply a low-pass filter
 // The filtered samples are used as references during prediction
 __kernel void filterFrame_1d_float(__global short *referenceFrame, __global short *filteredFrame, const int frameWidth, const int frameHeight, const int kernelIdx, const int rep){

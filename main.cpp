@@ -296,7 +296,7 @@ int main(int argc, char *argv[])
 
 
 #if USE_ALTERNATIVE_SAMPLES || PERFORM_CPU_FILTERING
-    int kernelIdx = 0;
+    int kernelIdx = 4;
 #endif
 
 
@@ -601,7 +601,7 @@ int main(int argc, char *argv[])
         //                                    When using filterFrame_2d, int or float, nWG_Filter MUST BE nCTUs*2
         //                                       When using filterFrame_1d_float, nWG_Filter MUST BE nCTUs*4
         //                                                             |
-        kernel_filterFrames = clCreateKernel(program_sizeid2, "filterFrame_2d_float_5x5_quarterCtu", &error);
+        kernel_filterFrames = clCreateKernel(program_sizeid2, "filterFrame_2d_float_quarterCtu", &error);
         probe_error(error, (char*)"Error creating filterFrame kernel\n"); 
         printf("Performing filterFrame kernel...\n");
 
