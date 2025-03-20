@@ -18,9 +18,12 @@ int N_FRAMES = -1; // Overwritten by sys.argv
 #include <math.h>
 #include <time.h>
 #include <sys/time.h>
-#include <omp.h>
 
 #include "constants.h"
+
+#include<boost/program_options.hpp>
+
+namespace po = boost::program_options;
 
 using namespace std;
 
@@ -103,17 +106,82 @@ int computeTimeDifferenceMs(DateAndTime start, DateAndTime finish){
 DateAndTime date_and_time;
 DateAndTime startWriteSamples, endReadingDistortion; // Used to track the processing time
 struct timeval tv;
-struct tm *tm;
+struct tm *timeStruct;
 
 int timeDifference; // in miliseconds
 
+int checkReportParameters(po::variables_map vm){
+    int errors = 0;
+    
+    cout << "-=-= INPUT PARAMETERS =-=-" << endl;
+    
+    if( vm["DeviceIndex"].defaulted()){
+        cout << "  Device index not set. Using standard value of " << vm["DeviceIndex"].as<int>() << "." << endl;
+    }
+    else{
+        cout << "  Device Index=" << vm["DeviceIndex"].as<int>() << endl;
+    }
+    if(vm["OutputPreffix"].defaulted() ){
+        cout << "  OutputPreffix log file not set. The output will not be written to any file." << endl;
+    }
+    else{
+        cout << "  OutputPreffix=" << vm["OutputPreffix"].as<string>() <<  endl;
+    }
+    if( ! vm["FramesToBeEncoded"].empty() ){
+        cout << "  FramesToBeEncoded=" << vm["FramesToBeEncoded"].as<int>() << endl;
+    }
+    else{
+        cout << "  [!] ERROR: FramesToBeEncoded not set." << endl;
+        errors++;
+    }
+    if ( ! vm["OriginalFrames"].empty() ){
+        cout << "  InputOriginalFrame=" << vm["OriginalFrames"].as<string>() << endl;
+    }
+    else{
+        cout << "  [!] ERROR: Input original frames not set." << endl;
+        errors++;
+    }
+    if ( ! vm["FilterType"].empty() ){
+        cout << "  FilterType=" << vm["FilterType"].as<string>() << endl;
+    }
+    else{
+        cout << "  [!] ERROR: Filter not set." << endl;
+        errors++;
+    }
+
+    if(vm["KernelIdx"].defaulted() ){
+        cout << "  KernelIdx not set. Using default value zero." << endl;
+    }
+    else{
+        cout << "  KernelIdx=" << vm["KernelIdx"].as<int>() <<  endl;
+    }
+
+
+    return errors;
+}
+
+int isFilterAvailable(string filterName){
+    for(int idx=0; idx<availableFilters.size(); idx++){
+        if( filterName == availableFilters[idx] )
+            return 1;
+    }
+    return 0;
+}
+
+int isFilterAvailable_arm(string filterName){
+    for(int idx=0; idx<availableFilters_arm.size(); idx++){
+        if( filterName == availableFilters_arm[idx] )
+            return 1;
+    }
+    return 0;
+}
 
 void print_timestamp(char* messagePreffix){
     gettimeofday(&tv, NULL);
-    tm = localtime(&tv.tv_sec);
-    date_and_time.hour = tm->tm_hour;
-    date_and_time.minutes = tm->tm_min;
-    date_and_time.seconds = tm->tm_sec;
+    timeStruct = localtime(&tv.tv_sec);
+    date_and_time.hour = timeStruct->tm_hour;
+    date_and_time.minutes = timeStruct->tm_min;
+    date_and_time.seconds = timeStruct->tm_sec;
     date_and_time.msec = (int) (tv.tv_usec / 1000);
                 // hh:mm:ss:ms
     printf("%s @ %02d:%02d:%02d.%03d\n", messagePreffix,date_and_time.hour, date_and_time.minutes, date_and_time.seconds, date_and_time.msec );
@@ -122,20 +190,20 @@ void print_timestamp(char* messagePreffix){
 // Save the start time (before write samples)
 void save_startTime(){
     gettimeofday(&tv, NULL);
-    tm = localtime(&tv.tv_sec);
-    startWriteSamples.hour = tm->tm_hour;
-    startWriteSamples.minutes = tm->tm_min;
-    startWriteSamples.seconds = tm->tm_sec;
+    timeStruct = localtime(&tv.tv_sec);
+    startWriteSamples.hour = timeStruct->tm_hour;
+    startWriteSamples.minutes = timeStruct->tm_min;
+    startWriteSamples.seconds = timeStruct->tm_sec;
     startWriteSamples.msec = (int) (tv.tv_usec / 1000);
 }
 
 // Save the finish time (after read distortion)
 void save_finishTime(){
     gettimeofday(&tv, NULL);
-    tm = localtime(&tv.tv_sec);
-    endReadingDistortion.hour = tm->tm_hour;
-    endReadingDistortion.minutes = tm->tm_min;
-    endReadingDistortion.seconds = tm->tm_sec;
+    timeStruct = localtime(&tv.tv_sec);
+    endReadingDistortion.hour = timeStruct->tm_hour;
+    endReadingDistortion.minutes = timeStruct->tm_min;
+    endReadingDistortion.seconds = timeStruct->tm_sec;
     endReadingDistortion.msec = (int) (tv.tv_usec / 1000);
 
     timeDifference = computeTimeDifferenceMs(startWriteSamples, endReadingDistortion);
@@ -1238,7 +1306,20 @@ void optFilterCpuInt(unsigned short *input, unsigned short *output, int width, i
 
 }
 
-void parallelOptFilterCpuInt(unsigned short *input, unsigned short *output, int width, int height, int kernelIdx, int nThreads){
+int getNumCtus(int frameWidth, int frameHeight){
+    pair<int,int> inputRes(frameWidth, frameHeight);
+
+    for( unsigned int i=0; i<availableRes.size(); i++){
+        if(inputRes == pair<int,int>( get<0>(availableRes[i]), get<1>(availableRes[i]) )){
+            return get<2>(availableRes[i]); 
+        }
+    }
+    // In case it didn't match with any of the available resolutions, return an error code
+   return 0;
+}
+
+
+void parallelOptFilterCpuInt_3x3(unsigned short *input, unsigned short *output, int width, int height, int kernelIdx, int nThreads){
 
     int kernel[3][3];
     
@@ -1384,11 +1465,775 @@ void parallelOptFilterCpuInt(unsigned short *input, unsigned short *output, int 
 
 }
 
-void profileCpuFiltering(unsigned short *input, int frameWidth, int frameHeight, int kernelIdx, int maxThreads, int reportFilterResults){
+void parallelOptFilterCpuInt_5x5(unsigned short *input, unsigned short *output, int width, int height, int kernelIdx, int nThreads){
+
+    int kernel[5][5];
+    
+    for(int i=0; i<5; i++){
+        for(int j=0; j<5; j++){
+            kernel[i][j] = convKernelLib_5x5[kernelIdx][i][j];
+        }
+    }
+
+    // printf("Kernel:\n");
+    // for(int i=0; i<5; i++){
+    //     for(int j=0; j<5; j++){
+    //         printf("%d,", kernel[i][j]);
+    //     }
+    //     printf("\n");
+    // }
+    // printf("\n");
+
+    int fullScale = 0;          for(int i=0; i<5; i++) for(int j=0; j<5; j++) fullScale += kernel[i][j];
+    // printf("FullScale: %d\n", fullScale);
+    
+    int outerCornerScale = 0;   for(int i=0; i<3; i++) for(int j=0; j<3; j++) outerCornerScale += kernel[i][j];
+    int innerCornerScale = 0;   for(int i=0; i<4; i++) for(int j=0; j<4; j++) innerCornerScale += kernel[i][j];
+
+    int outerEdgeScale = 0;     for(int i=0; i<3; i++) for(int j=0; j<5; j++) outerEdgeScale += kernel[i][j];
+    int innerEdgeScale = 0;     for(int i=0; i<4; i++) for(int j=0; j<5; j++) innerEdgeScale += kernel[i][j];
+
+    int interfaceScale = 0;     for(int i=0; i<4; i++) for(int j=0; j<3; j++) interfaceScale += kernel[i][j];
+
+
+    
+    int result = 0;
+    int currScale = 0;
+
+    int h,w,i,j;
+    for(int f=0; f<MULTIPLIER_CPU_FILTER; f++){
+
+        currScale = fullScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(h=2; h<height-2; h++){
+            for(w=2; w<width-2; w++){
+                result = 0.0;
+                // if(w==2 && h==2){
+                //     printf("Result @(2x2) -> ");
+                // }
+                for(i=-2; i<=2; i++){
+                    for(j=-2; j<=2; j++){
+                        result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                        // if(w==2 && h==2)
+                        //     printf("%d, ", result);
+                    }
+                }
+                // if(w==2 && h==2)
+                //     printf(" -> (%d+%d)/%d = %d\n", result, currScale/2, currScale, (result + currScale/2)/currScale);
+
+                output[h*width+w] = (result + currScale/2)/currScale;
+            }
+        }
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        //
+        //        Outer Edges
+
+        // First or last lines, except corners. Without top or bottom coeffs
+        currScale = outerEdgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(w=2; w<width-2; w++){
+            // Top
+            h=0;
+            result = 0;
+            for(i=0; i<=2; i++){
+                for(j=-2; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }      
+            output[h*width+w] = (result + currScale/2)/currScale;  
+
+            // Bottom
+            h=height-1;
+            result = 0;
+            for(i=-2; i<=0; i++){
+                for(j=-2; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }      
+            output[h*width+w] = (result + currScale/2)/currScale;  
+        }
+
+   
+
+        // First or last column, except corners. Without left or right coeffs
+        currScale = outerEdgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(h=2; h<height-2; h++){
+            // Left
+            w=0;
+            result = 0;
+            for(i=-2; i<=2; i++){
+                for(j=0; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }  
+            output[h*width+w] = (result + currScale/2)/currScale;      
+
+            // Right
+            w=width-1;
+            result = 0;
+            for(i=-2; i<=2; i++){
+                for(j=-2; j<=0; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }  
+            output[h*width+w] = (result + currScale/2)/currScale;      
+        }
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        //
+        //        Inner Edges
+
+
+        // Second or pre-last lines, except corners. Without top or bottom coeffs
+        currScale = innerEdgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(w=2; w<width-2; w++){
+            // Top
+            h=1;
+            result = 0;
+            for(i=-1; i<=2; i++){
+                for(j=-2; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }      
+            output[h*width+w] = (result + currScale/2)/currScale;  
+
+            // Bottom
+            h=height-2;
+            result = 0;
+            for(i=-2; i<=1; i++){
+                for(j=-2; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }      
+            output[h*width+w] = (result + currScale/2)/currScale;  
+        }
+
+   
+
+        // Second or pre-last column, except corners. Without left or right coeffs
+        currScale = innerEdgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(h=2; h<height-2; h++){
+            // Left
+            w=1;
+            result = 0;
+            for(i=-2; i<=2; i++){
+                for(j=-1; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }  
+            output[h*width+w] = (result + currScale/2)/currScale;      
+
+            // Right
+            w=width-2;
+            result = 0;
+            for(i=-2; i<=2; i++){
+                for(j=-2; j<=1; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }  
+            output[h*width+w] = (result + currScale/2)/currScale;      
+        }
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        //
+        //        Outer corners
+
+        // Top-left
+        result=0; w=0; h=0; currScale=outerCornerScale;
+        for(i=0; i<=2; i++)
+            for(j=0; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+
+        // Top-right
+        result=0; w=width-1; h=0; currScale=outerCornerScale;
+        for(i=0; i<=2; i++)
+            for(j=-2; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        // Bottom-left
+        result=0; w=0; h=height-1; currScale=outerCornerScale;
+        for(i=-2; i<=0; i++)
+            for(j=0; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        // Top-left
+        result=0; w=width-1; h=height-1; currScale=outerCornerScale;
+        for(i=-2; i<=0; i++)
+            for(j=-2; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;         
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        //
+        //        Inner corners
+
+        // Top-left
+        result=0; w=1; h=1; currScale=innerCornerScale;
+        for(i=-1; i<=2; i++)
+            for(j=-1; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+
+        // Top-right
+        result=0; w=width-2; h=1; currScale=innerCornerScale;
+        for(i=-1; i<=2; i++)
+            for(j=-2; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        // Bottom-left
+        result=0; w=1; h=height-2; currScale=innerCornerScale;
+        for(i=-2; i<=1; i++)
+            for(j=-1; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        // Top-left
+        result=0; w=width-2; h=height-2; currScale=innerCornerScale;
+        for(i=-2; i<=1; i++)
+            for(j=-2; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;         
+
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        //
+        //        Interface
+
+
+        // Top-left
+        result=0; w=1; h=0; currScale=interfaceScale;
+        for(i=0; i<=2; i++)
+            for(j=-1; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        result=0; w=0; h=1; currScale=interfaceScale;
+        for(i=-1; i<=2; i++)
+            for(j=0; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        // Top-right
+        result=0; w=width-2; h=0; currScale=interfaceScale;
+        for(i=0; i<=2; i++)
+            for(j=-2; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        result=0; w=width-1; h=1; currScale=interfaceScale;
+        for(i=-1; i<=2; i++)
+            for(j=-2; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+
+        // Bottom-left
+        result=0; w=0; h=height-2; currScale=interfaceScale;
+        for(i=-2; i<=1; i++)
+            for(j=0; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        result=0; w=1; h=height-1; currScale=interfaceScale;
+        for(i=-2; i<=0; i++)
+            for(j=-1; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;     
+
+        // Bottom-right
+        result=0; w=width-2; h=height-1; currScale=interfaceScale;
+        for(i=-2; i<=0; i++)
+            for(j=-2; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;  
+
+        result=0; w=width-1; h=height-2; currScale=interfaceScale;
+        for(i=-2; i<=1; i++)
+            for(j=-2; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = (result + currScale/2)/currScale;  
+
+    }  
+
+}
+
+void parallelOptFilterCpuFloat_3x3(unsigned short *input, unsigned short *output, int width, int height, int kernelIdx, int nThreads){
+
+    double kernel[3][3];
+    
+    for(int i=0; i<3; i++){
+        for(int j=0; j<3; j++){
+            kernel[i][j] = convKernelLib_float[kernelIdx][i][j];
+        }
+            
+    }
+
+
+    double fullScale = 0;   for(int i=0; i<3; i++) for(int j=0; j<3; j++) fullScale += kernel[i][j];
+    double edgeScale = 0;   for(int i=0; i<2; i++) for(int j=0; j<3; j++) edgeScale += kernel[i][j];
+    double cornerScale = 0; for(int i=0; i<2; i++) for(int j=0; j<2; j++) cornerScale += kernel[i][j];
+    double result = 0;
+    double currScale = 0;
+
+    int h,w,i,j;
+    for(int f=0; f<MULTIPLIER_CPU_FILTER; f++){
+        currScale = fullScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(h=1; h<height-1; h++){
+            for(w=1; w<width-1; w++){
+                result = 0.0;
+                // if(h==1 && w==1)
+                //     printf("Result: ");
+                for(i=-1; i<=1; i++){
+                    for(j=-1; j<=1; j++){
+                        result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                        // if(h==1 && w==1)
+                        //     printf("%f,: ", result);
+                    }
+                }
+                // if(h==1 && w==1)
+                //     printf("\nFinal result: (%f/%f)=%f\n,: ", result, currScale, round(result/currScale));
+                output[h*width+w] = round(result/currScale);
+            }
+        }
+
+        // First or last lines, except corners. Without top or bottom coeffs
+        currScale = edgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(w=1; w<width-1; w++){
+            // Top
+            h=0;
+            result = 0;
+            for(i=0; i<=1; i++){
+                for(j=-1; j<=1; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }      
+            output[h*width+w] = round(result/currScale);
+
+            // Bottom
+            h=height-1;
+            result = 0;
+            for(i=-1; i<=0; i++){
+                for(j=-1; j<=1; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }      
+            output[h*width+w] = round(result/currScale);
+        }
+
+        // // Last line, except corners. Without bottom coeffs
+        // h=height-1;
+        // currScale = edgeScale;
+        // #pragma omp parallel for private(result, w, i, j) num_threads(nThreads)
+        // for(w=1; w<width-1; w++){
+        //     result = 0;
+        //     for(i=-1; i<=0; i++){
+        //         for(j=-1; j<=1; j++){
+        //             result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+        //         }
+        //     }        
+        //     output[h*width+w] = (result + currScale/2)/currScale;
+        // }    
+
+        // First or last column, except corners. Without left or right coeffs
+        currScale = edgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(h=1; h<height-1; h++){
+            // Left
+            w=0;
+            result = 0;
+            for(i=-1; i<=1; i++){
+                for(j=0; j<=1; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }  
+            output[h*width+w] = (result + currScale/2)/currScale;      
+
+            // Right
+            w=width-1;
+            result = 0;
+            for(i=-1; i<=1; i++){
+                for(j=-1; j<=0; j++){
+                    result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+                }
+            }  
+            output[h*width+w] = round(result/currScale);
+        }
+
+        // // Last column, except corners. Without right coeffs
+        // w=width-1;
+        // currScale = edgeScale;
+        // #pragma omp parallel for private(result, h, i, j) num_threads(nThreads)
+        // for(h=1; h<height-1; h++){
+        //     result = 0;
+        //     for(i=-1; i<=1; i++){
+        //         for(j=-1; j<=0; j++){
+        //             result += input[(h+i)*width + w+j]*kernel[1+i][1+j];    
+        //         }
+        //     }   
+        //     output[h*width+w] = (result + currScale/2)/currScale;     
+        // }
+
+        // Corners
+        // Top-left
+        result=0; w=0; h=0; currScale=cornerScale;
+        for(i=0; i<=1; i++)
+            for(j=0; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = round(result/currScale);
+
+
+        // Top-right
+        result=0; w=width-1; h=0; currScale=cornerScale;
+        for(i=0; i<=1; i++)
+            for(j=-1; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = round(result/currScale);
+
+        // Bottom-left
+        result=0; w=0; h=height-1; currScale=cornerScale;
+        for(i=-1; i<=0; i++)
+            for(j=0; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = round(result/currScale);
+
+        // Top-left
+        result=0; w=width-1; h=height-1; currScale=cornerScale;
+        for(i=-1; i<=0; i++)
+            for(j=-1; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[1+i][1+j];
+        output[h*width+w] = round(result/currScale);
+
+    }    
+
+}
+
+
+void parallelOptFilterCpuFloat_5x5(unsigned short *input, unsigned short *output, int width, int height, int kernelIdx, int nThreads){
+
+    double kernel[5][5];
+    
+    for(int i=0; i<5; i++){
+        for(int j=0; j<5; j++){
+            kernel[i][j] = convKernelLib_5x5_float[kernelIdx][i][j];
+        }
+    }
+
+    // printf("Kernel:\n");
+    // for(int i=0; i<5; i++){
+    //     for(int j=0; j<5; j++){
+    //         printf("%d,", kernel[i][j]);
+    //     }
+    //     printf("\n");
+    // }
+    // printf("\n");
+
+    double fullScale = 0;          for(int i=0; i<5; i++) for(int j=0; j<5; j++) fullScale += kernel[i][j];
+    // printf("FullScale: %d\n", fullScale);
+    
+    double outerCornerScale = 0;   for(int i=0; i<3; i++) for(int j=0; j<3; j++) outerCornerScale += kernel[i][j];
+    double innerCornerScale = 0;   for(int i=0; i<4; i++) for(int j=0; j<4; j++) innerCornerScale += kernel[i][j];
+
+    double outerEdgeScale = 0;     for(int i=0; i<3; i++) for(int j=0; j<5; j++) outerEdgeScale += kernel[i][j];
+    double innerEdgeScale = 0;     for(int i=0; i<4; i++) for(int j=0; j<5; j++) innerEdgeScale += kernel[i][j];
+
+    double interfaceScale = 0;     for(int i=0; i<4; i++) for(int j=0; j<3; j++) interfaceScale += kernel[i][j];
+
+
+    
+    double result = 0;
+    double currScale = 0;
+
+    int h,w,i,j;
+    for(int f=0; f<MULTIPLIER_CPU_FILTER; f++){
+
+        currScale = fullScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(h=2; h<height-2; h++){
+            for(w=2; w<width-2; w++){
+                result = 0.0;
+                // if(w==2 && h==2){
+                //     printf("Result @(2x2) -> ");
+                // }
+                for(i=-2; i<=2; i++){
+                    for(j=-2; j<=2; j++){
+                        result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                        // if(w==2 && h==2)
+                        //     printf("%d, ", result);
+                    }
+                }
+                // if(w==2 && h==2)
+                //     printf(" -> (%d+%d)/%d = %d\n", result, currScale/2, currScale, (result + currScale/2)/currScale);
+
+                output[h*width+w] = round(result/currScale);
+            }
+        }
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        //
+        //        Outer Edges
+
+        // First or last lines, except corners. Without top or bottom coeffs
+        currScale = outerEdgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(w=2; w<width-2; w++){
+            // Top
+            h=0;
+            result = 0;
+            for(i=0; i<=2; i++){
+                for(j=-2; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }      
+            output[h*width+w] = round(result/currScale);
+
+            // Bottom
+            h=height-1;
+            result = 0;
+            for(i=-2; i<=0; i++){
+                for(j=-2; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }      
+            output[h*width+w] = round(result/currScale);
+        }
+
+   
+
+        // First or last column, except corners. Without left or right coeffs
+        currScale = outerEdgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(h=2; h<height-2; h++){
+            // Left
+            w=0;
+            result = 0;
+            for(i=-2; i<=2; i++){
+                for(j=0; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }  
+            output[h*width+w] = round(result/currScale);
+
+            // Right
+            w=width-1;
+            result = 0;
+            for(i=-2; i<=2; i++){
+                for(j=-2; j<=0; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }  
+            output[h*width+w] = round(result/currScale);
+        }
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        //
+        //        Inner Edges
+
+
+        // Second or pre-last lines, except corners. Without top or bottom coeffs
+        currScale = innerEdgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(w=2; w<width-2; w++){
+            // Top
+            h=1;
+            result = 0;
+            for(i=-1; i<=2; i++){
+                for(j=-2; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }      
+            output[h*width+w] = round(result/currScale);
+
+            // Bottom
+            h=height-2;
+            result = 0;
+            for(i=-2; i<=1; i++){
+                for(j=-2; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }      
+            output[h*width+w] = round(result/currScale);
+        }
+
+   
+
+        // Second or pre-last column, except corners. Without left or right coeffs
+        currScale = innerEdgeScale;
+        #pragma omp parallel for private(result, h, w, i, j) num_threads(nThreads)
+        for(h=2; h<height-2; h++){
+            // Left
+            w=1;
+            result = 0;
+            for(i=-2; i<=2; i++){
+                for(j=-1; j<=2; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }  
+            output[h*width+w] = round(result/currScale); 
+
+            // Right
+            w=width-2;
+            result = 0;
+            for(i=-2; i<=2; i++){
+                for(j=-2; j<=1; j++){
+                    result += input[(h+i)*width + w+j]*kernel[2+i][2+j];    
+                }
+            }  
+            output[h*width+w] = round(result/currScale);
+        }
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        //
+        //        Outer corners
+
+        // Top-left
+        result=0; w=0; h=0; currScale=outerCornerScale;
+        for(i=0; i<=2; i++)
+            for(j=0; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+
+        // Top-right
+        result=0; w=width-1; h=0; currScale=outerCornerScale;
+        for(i=0; i<=2; i++)
+            for(j=-2; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+        // Bottom-left
+        result=0; w=0; h=height-1; currScale=outerCornerScale;
+        for(i=-2; i<=0; i++)
+            for(j=0; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+        // Top-left
+        result=0; w=width-1; h=height-1; currScale=outerCornerScale;
+        for(i=-2; i<=0; i++)
+            for(j=-2; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        //
+        //        Inner corners
+
+        // Top-left
+        result=0; w=1; h=1; currScale=innerCornerScale;
+        for(i=-1; i<=2; i++)
+            for(j=-1; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+
+        // Top-right
+        result=0; w=width-2; h=1; currScale=innerCornerScale;
+        for(i=-1; i<=2; i++)
+            for(j=-2; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+        // Bottom-left
+        result=0; w=1; h=height-2; currScale=innerCornerScale;
+        for(i=-2; i<=1; i++)
+            for(j=-1; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+        // Top-left
+        result=0; w=width-2; h=height-2; currScale=innerCornerScale;
+        for(i=-2; i<=1; i++)
+            for(j=-2; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+
+
+        // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        //
+        //        Interface
+
+
+        // Top-left
+        result=0; w=1; h=0; currScale=interfaceScale;
+        for(i=0; i<=2; i++)
+            for(j=-1; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+        result=0; w=0; h=1; currScale=interfaceScale;
+        for(i=-1; i<=2; i++)
+            for(j=0; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+        // Top-right
+        result=0; w=width-2; h=0; currScale=interfaceScale;
+        for(i=0; i<=2; i++)
+            for(j=-2; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+        result=0; w=width-1; h=1; currScale=interfaceScale;
+        for(i=-1; i<=2; i++)
+            for(j=-2; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+        // Bottom-left
+        result=0; w=0; h=height-2; currScale=interfaceScale;
+        for(i=-2; i<=1; i++)
+            for(j=0; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+        result=0; w=1; h=height-1; currScale=interfaceScale;
+        for(i=-2; i<=0; i++)
+            for(j=-1; j<=2; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+        // Bottom-right
+        result=0; w=width-2; h=height-1; currScale=interfaceScale;
+        for(i=-2; i<=0; i++)
+            for(j=-2; j<=1; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+        result=0; w=width-1; h=height-2; currScale=interfaceScale;
+        for(i=-2; i<=1; i++)
+            for(j=-2; j<=0; j++)
+                result += input[(h+i)*width + w+j]*kernel[2+i][2+j];
+        output[h*width+w] = round(result/currScale);
+
+    }  
+
+}
+
+void profileCpuFiltering(unsigned short *input, int frameWidth, int frameHeight, int kernelDim, int kernelIdx, int maxThreads, int reportFilterResults){
     printf("profileCpuFiltering\n");
     
-    unsigned short *cpu_filtered_frame = (unsigned short *)malloc(sizeof(short) * frameWidth*frameHeight * N_FRAMES);
-    unsigned short *cpu_filtered_frame_parallel = (unsigned short *)malloc(sizeof(short) * frameWidth*frameHeight * N_FRAMES);
+    unsigned short *cpu_filtered_frame_parallel_int = (unsigned short *)malloc(sizeof(short) * frameWidth*frameHeight * N_FRAMES);
+    unsigned short *cpu_filtered_frame_parallel_float = (unsigned short *)malloc(sizeof(short) * frameWidth*frameHeight * N_FRAMES);
     
     struct timeval tvCpu;
     struct tm *tmCpu;
@@ -1401,27 +2246,24 @@ void profileCpuFiltering(unsigned short *input, int frameWidth, int frameHeight,
     startFilter.seconds = tmCpu->tm_sec;
     startFilter.msec = (int) (tvCpu.tv_usec / 1000);
 
-
-    print_timestamp((char*) "START CPU FILTER OPT INT SERIAL");    
-    optFilterCpuInt(input, cpu_filtered_frame, frameWidth, frameHeight, kernelIdx);
+   // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+   //
+   // FILTERING WITH INTEGER COEFFICIENTS
        
-    gettimeofday(&tvCpu, NULL);
-    tmCpu = localtime(&tvCpu.tv_sec);
-    finishFilter.hour = tmCpu->tm_hour;
-    finishFilter.minutes = tmCpu->tm_min;
-    finishFilter.seconds = tmCpu->tm_sec;
-    finishFilter.msec = (int) (tvCpu.tv_usec / 1000);
-    timeDifference = computeTimeDifferenceMs(startFilter, finishFilter);
-
-    printf(">> SERIAL CPU FILTER [INT] took %d ms\n", timeDifference);
-
-    print_timestamp((char*) "END CPU FILTER OPT INT SERIAL");    
-
-
-    print_timestamp((char*) "START CPU FILTER OPT INT PARALLEL");    
+    if(kernelDim==3){
+        print_timestamp((char*) "START CPU FILTER OPT INT 3x3 PARALLEL");    
+    }
+    else if(kernelDim==5){
+        print_timestamp((char*) "START CPU FILTER OPT INT 5x5 PARALLEL");     
+    }
+    else{
+        printf("ERROR: kernelDim=%d\n", kernelDim);
+        return;
+    }
+    
 
     for(int t=1; t<=maxThreads; t++){
-        omp_set_num_threads(t);
+        // omp_set_num_threads(t);
         
         gettimeofday(&tvCpu, NULL);  
         tmCpu = localtime(&tvCpu.tv_sec);
@@ -1430,7 +2272,13 @@ void profileCpuFiltering(unsigned short *input, int frameWidth, int frameHeight,
         startFilter.seconds = tmCpu->tm_sec;
         startFilter.msec = (int) (tvCpu.tv_usec / 1000);
 
-        parallelOptFilterCpuInt(input, cpu_filtered_frame_parallel, frameWidth, frameHeight, kernelIdx, t);
+        if(kernelDim==3){
+            parallelOptFilterCpuInt_3x3(input, cpu_filtered_frame_parallel_int, frameWidth, frameHeight, kernelIdx, t);
+        }
+        else{
+            parallelOptFilterCpuInt_5x5(input, cpu_filtered_frame_parallel_int, frameWidth, frameHeight, kernelIdx, t);
+        }
+        
 
         gettimeofday(&tvCpu, NULL);
         tmCpu = localtime(&tvCpu.tv_sec);
@@ -1440,34 +2288,109 @@ void profileCpuFiltering(unsigned short *input, int frameWidth, int frameHeight,
         finishFilter.msec = (int) (tvCpu.tv_usec / 1000);
         timeDifference = computeTimeDifferenceMs(startFilter, finishFilter);
 
-        printf(">> PARALLEL [%d threads] CPU FILTER [INT] took %d ms\n", t, timeDifference);        
+        printf(">> PARALLEL [%d threads] CPU FILTER [INT] %dx%d took %d ms\n", t, kernelDim, kernelDim, timeDifference);        
         
     }
 
-    print_timestamp((char*) "END CPU FILTER OPT INT PARALLEL");          
+    if(kernelDim==3){
+        print_timestamp((char*) "END CPU FILTER OPT INT 3x3 PARALLEL");          
+    }
+    else{
+        print_timestamp((char*) "END CPU FILTER OPT INT 5x5 PARALLEL");          
+    }
+
+    
+    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    //
+    // FILTERING WITH FLOATING-POINT COEFFICIENTS
+
+    
+    if(kernelDim==3){
+        print_timestamp((char*) "START CPU FILTER OPT FLOAT 3x3 PARALLEL");    
+    }
+    else if(kernelDim==5){
+        print_timestamp((char*) "START CPU FILTER OPT FLOAT 5x5 PARALLEL");     
+    }
+    else{
+        printf("ERROR: kernelDim=%d\n", kernelDim);
+        return;
+    }
+    
+
+    for(int t=1; t<=maxThreads; t++){
+        // omp_set_num_threads(t);
+        
+        gettimeofday(&tvCpu, NULL);  
+        tmCpu = localtime(&tvCpu.tv_sec);
+        startFilter.hour = tmCpu->tm_hour;
+        startFilter.minutes = tmCpu->tm_min;
+        startFilter.seconds = tmCpu->tm_sec;
+        startFilter.msec = (int) (tvCpu.tv_usec / 1000);
+
+        if(kernelDim==3){
+            parallelOptFilterCpuFloat_3x3(input, cpu_filtered_frame_parallel_float, frameWidth, frameHeight, kernelIdx, t);
+        }
+        else{
+            parallelOptFilterCpuFloat_5x5(input, cpu_filtered_frame_parallel_float, frameWidth, frameHeight, kernelIdx, t);
+        }
+        
+
+        gettimeofday(&tvCpu, NULL);
+        tmCpu = localtime(&tvCpu.tv_sec);
+        finishFilter.hour = tmCpu->tm_hour;
+        finishFilter.minutes = tmCpu->tm_min;
+        finishFilter.seconds = tmCpu->tm_sec;
+        finishFilter.msec = (int) (tvCpu.tv_usec / 1000);
+        timeDifference = computeTimeDifferenceMs(startFilter, finishFilter);
+
+        printf(">> PARALLEL [%d threads] CPU FILTER [FLOAT] %dx%d took %d ms\n", t, kernelDim, kernelDim, timeDifference);        
+        
+    }
+
+    if(kernelDim==3){
+        print_timestamp((char*) "END CPU FILTER OPT FLOAT 3x3 PARALLEL");          
+    }
+    else{
+        print_timestamp((char*) "END CPU FILTER OPT FLOAT 5x5 PARALLEL");          
+    }
+
+
+
+
+
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     //
     // Report
     if(reportFilterResults){
-        printf("CPU FILTERED SAMPLES SERIAL\n");
+        // printf("CPU FILTERED SAMPLES SERIAL\n");
+        // for(int i=0; i<frameHeight; i++){
+        //     for(int j=0; j<frameWidth; j++){
+        //         printf("%d,",cpu_filtered_frame[i*frameWidth+j]);
+        //     }
+        //     printf("\n");
+        // }
+
+        printf("CPU FILTERED SAMPLES INT PARALLEL\n");
         for(int i=0; i<frameHeight; i++){
             for(int j=0; j<frameWidth; j++){
-                printf("%d,",cpu_filtered_frame[i*frameWidth+j]);
+                printf("%d,",cpu_filtered_frame_parallel_int[i*frameWidth+j]);
             }
             printf("\n");
         }
+        
+        printf("\n\n");
 
-        printf("CPU FILTERED SAMPLES PARALLEL\n");
+        printf("CPU FILTERED SAMPLES FLOAT PARALLEL\n");
         for(int i=0; i<frameHeight; i++){
             for(int j=0; j<frameWidth; j++){
-                printf("%d,",cpu_filtered_frame_parallel[i*frameWidth+j]);
+                printf("%d,",cpu_filtered_frame_parallel_float[i*frameWidth+j]);
             }
             printf("\n");
         }
     }
     
-    free(cpu_filtered_frame);
-    free(cpu_filtered_frame_parallel);
+    free(cpu_filtered_frame_parallel_int);
+    free(cpu_filtered_frame_parallel_float);
 
 }

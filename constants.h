@@ -1,3 +1,6 @@
+#include<vector>
+#include<tuple>
+
 enum CU_SIZE {
     _64x64 = 0,
     _32x32 = 1,
@@ -9,6 +12,36 @@ enum CU_SIZE {
     _16x8  = 7,
     _8x16  = 8,
     NUM_CU_SIZES = 9
+};
+
+const std::vector<std::tuple<int,int,int>> availableRes = {
+  std::make_tuple<int,int,int>(3840, 2160, 510),
+  std::make_tuple<int,int,int>(1920, 1080, 135),
+  std::make_tuple<int,int,int>(1280,  720,  60),
+  std::make_tuple<int,int,int>(832,   480,  28),
+  std::make_tuple<int,int,int>(416,   240,  8)
+};
+
+const std::vector<std::string> availableFilters = {
+  "filterFrame_1d_int",
+  "filterFrame_1d_float",
+  "filterFrame_2d_int_quarterCtu",
+  "filterFrame_2d_float_quarterCtu",
+  "filterFrame_1d_int_5x5",
+  "filterFrame_1d_float_5x5",
+  "filterFrame_2d_int_5x5_quarterCtu",
+  "filterFrame_2d_float_5x5_quarterCtu"
+};
+
+const std::vector<std::string> availableFilters_arm = {
+  "filterFrame_1d_int_arm",
+  "filterFrame_1d_float_arm",
+  "filterFrame_2d_int_quarterCtu_arm",
+  "filterFrame_2d_float_quarterCtu_arm",
+  "filterFrame_1d_int_5x5_arm",
+  "filterFrame_1d_float_5x5_arm",
+  "filterFrame_2d_int_5x5_quarterCtu_arm",
+  "filterFrame_2d_float_5x5_quarterCtu_arm"
 };
 
 #define TOTAL_CUS_PER_CTU 532
@@ -62,6 +95,101 @@ const unsigned short convKernelLib[5][3][3] = {
     {  1,  2,  1  },
     {  2,  4,  2  },
     {  1,  2,  1  }
+  }
+};
+
+const unsigned short convKernelLib_5x5[3][5][5] = {
+  // V0
+  {
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 }
+  },
+  
+  // V1
+  {
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  5,  1,  1 },
+    {  1,  1,  1,  1,  1 },
+    {  1,  1,  1,  1,  1 }
+  },
+// 1-2-3-2-1
+  {
+    {  1,  2,  3,  2,  1 },
+    {  2,  4,  6,  4,  2 },
+    {  3,  6,  9,  6,  3 },
+    {  2,  4,  6,  4,  2 },
+    {  1,  2,  3,  2,  1 }
+  },
+
+};
+
+
+const double convKernelLib_float[5][3][3] = {
+  // V0
+  {
+    {  1/9.0,  1/9.0,  1/9.0  },
+    {  1/9.0,  1/9.0,  1/9.0  },
+    {  1/9.0,  1/9.0,  1/9.0  }
+  },
+  
+  // V1
+  {
+    {  1/15.0,  2/15.0,  1/15.0  },
+    {  2/15.0,  3/15.0,  2/15.0  },
+    {  1/15.0,  2/15.0,  1/15.0  }
+  },
+  
+  
+  // V2
+  {
+    {  1/24.0,  2/24.0,  1/24.0 },
+    {  2/24.0,  12/24.0, 2/24.0 },
+    {  1/24.0,  2/24.0,  1/24.0 }
+  },
+  
+  // V3
+  {
+    {  1/16.0,  1/16.0,  1/16.0  },
+    {  1/16.0,  8/16.0,  1/16.0  },
+    {  1/16.0,  1/16.0,  1/16.0  }
+  },
+
+  // V4
+  {
+    {  1/16.0,  2/16.0,  1/16.0  },
+    {  2/16.0,  4/16.0,  2/16.0  },
+    {  1/16.0,  2/16.0,  1/16.0  }
+  }
+};
+
+const double convKernelLib_5x5_float[3][5][5] = {
+  // V0
+  {
+    { 0.04 , 0.04 , 0.04 , 0.04 , 0.04 },
+    { 0.04 , 0.04 , 0.04 , 0.04 , 0.04 },
+    { 0.04 , 0.04 , 0.04 , 0.04 , 0.04 },
+    { 0.04 , 0.04 , 0.04 , 0.04 , 0.04 },
+    { 0.04 , 0.04 , 0.04 , 0.04 , 0.04 }
+  },
+  // V1
+  {
+    { 0.0345 , 0.0345 , 0.0345 , 0.0345 , 0.0345},
+    { 0.0345 , 0.0345 , 0.0345 , 0.0345 , 0.0345},
+    { 0.0345 , 0.0345 , 0.1724 , 0.0345 , 0.0345},
+    { 0.0345 , 0.0345 , 0.0345 , 0.0345 , 0.0345},
+    { 0.0345 , 0.0345 , 0.0345 , 0.0345 , 0.0345}
+  },
+  // 1-2-3-2-1
+  {
+    { 1/81.0, 2/81.0, 3/81.0, 2/81.0, 1/81.0 },
+    { 2/81.0, 4/81.0, 6/81.0, 4/81.0, 2/81.0 },
+    { 3/81.0, 6/81.0, 9/81.0, 6/81.0, 3/81.0 },
+    { 2/81.0, 4/81.0, 6/81.0, 4/81.0, 2/81.0 },
+    { 1/81.0, 2/81.0, 3/81.0, 2/81.0, 1/81.0 }
   }
 };
 

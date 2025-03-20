@@ -1,10 +1,15 @@
+
+
+#define USE_ARM 0
+
+
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 #define CL_TARGET_OPENCL_VERSION 120
 
 
 #define USE_ALTERNATIVE_SAMPLES 1
-
-#define PERFORM_CPU_FILTERING 0
+#define PERFORM_CPU_FILTERING 1
+#define ONLY_FILTER_AND_EXIT 0
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +20,8 @@
 #include <limits.h>
 #include <assert.h>
 #include "main_aux_functions.h"
+#include <boost/program_options.hpp>
+
 
 using namespace std;
 
@@ -23,11 +30,58 @@ using namespace std;
 #else
 #include <CL/cl.h>
 #endif
+#include <CL/cl_ext.h>
+
 
 #define MAX_SOURCE_SIZE (0x100000)
 
+void callback(const char *buffer, size_t length, size_t final, void *user_data)
+{
+     fwrite(buffer, 1, length, stdout);
+}
+
 int main(int argc, char *argv[])
 {
+
+
+    int po_gpuDeviceIdx=-1, po_error=0, po_nFrames=-1, po_kernelIdx=-1;
+    string po_outputPreffix, po_inputOrigFrames, po_resolution, po_filterType; 
+    
+    po::options_description desc("Allowed options");
+    desc.add_options()
+    ("help,h", "produce help message")
+    ("DeviceIndex",          po::value<int>(&po_gpuDeviceIdx)->default_value(0),      "Index of the GPU device according ot clinfo command")
+    ("FramesToBeEncoded,f",  po::value<int>(&po_nFrames),                             "Number of frames to be processed")
+    ("Resolution,s",         po::value<string>(&po_resolution),                       "Resolution of the video, in the format 1920x1080")
+    ("OriginalFrames,o",     po::value<string>(&po_inputOrigFrames),                  "Input file for original frames samples")
+    ("OutputPreffix,l",      po::value<string>(&po_outputPreffix)->default_value(""), "Output files preffix with produced CPMVs")
+    ("FilterType",           po::value<string>(&po_filterType),                       "Type of smoothing filter"  )
+    ("KernelIdx",            po::value<int>(&po_kernelIdx)->default_value(0),         "Index of the filtering kernel used to define the coeffiients")
+    ;
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::notify(vm); 
+    if (vm.count("help")) {
+        cout << desc << "\n";
+        return 1;
+    }
+
+    po_error = checkReportParameters(vm);
+
+    int isAvail = USE_ARM ? isFilterAvailable_arm(po_filterType) : isFilterAvailable(po_filterType);
+
+    if( ! isAvail){
+        cout << "  [!] ERROR: Filter type " << po_filterType << " not supported" << endl;
+        exit(0);
+    }
+
+    if(po_error > 0){
+        cout << "Exiting after finding errors in input parameters" << endl;
+        return 1;
+    }
+
+
+
     if(TRACE_POWER)
         print_timestamp((char*)"STARTED HOST");
 
@@ -36,7 +90,12 @@ int main(int argc, char *argv[])
     char *source_str;
     size_t source_size;
  
-    fp = fopen("intra.cl", "r");
+    #if USE_ARM
+        fp = fopen("intra_arm.cl", "r");
+    #else
+        fp = fopen("intra.cl", "r");
+    #endif
+
     if (!fp)
     {
         fprintf(stderr, "Failed to load kernel.\n");
@@ -157,38 +216,13 @@ int main(int argc, char *argv[])
     cl_device_id device_id = NULL; 
     
     // Select what CPU or GPU will be used based on parameters
-    if(argc==6){
-        if(!strcmp(argv[1],"CPU")){
-            if(stoi(argv[2]) < assigned_cpus){
-                if(!TRACE_POWER)
-                    cout << "COMPUTING ON CPU " << argv[2] << endl;        
-                device_id = cpu_device_ids[stoi(argv[2])];    
-            }
-            else{
-                cout << "Incorrect CPU number. Only " << assigned_cpus << " CPUs are detected" << endl;
-                exit(0);    
-            }
-        }
-        else if(!strcmp(argv[1],"GPU")){
-            if(stoi(argv[2]) < assigned_gpus){
-                if(!TRACE_POWER)
-                    cout << "COMPUTING ON GPU " << argv[2] << endl;        
-                device_id = gpu_device_ids[stoi(argv[2])];    
-            }
-            else{
-                cout << "Incorrect GPU number. Only " << assigned_gpus << " GPUs are detected" << endl;
-                exit(0);    
-            }
-        }
-        else{
-            cout << "Incorrect usage. First parameter must be either CPU or GPU" << endl;
-            exit(0);
-        }
+    if( po_gpuDeviceIdx < assigned_gpus){
+        cout << "COMPUTING ON GPU " << po_gpuDeviceIdx << endl;        
+        device_id = gpu_device_ids[po_gpuDeviceIdx];    
     }
     else{
-        cout << "\n\n\nFailed to specify the input parameters. Proper execution has the form of" << endl;
-        cout << "./main <CPU or GPU> <# of CPU or GPU device> <file with frames of reference frame> <output file preffix> <# of repetitions in GPU>\n\n\n" << endl;
-        exit(0);
+        cout << "Incorrect GPU index. Only " << assigned_gpus << " GPUs are detected" << endl;
+        exit(0); 
     }
 
     size_t ret_val;
@@ -205,7 +239,23 @@ int main(int argc, char *argv[])
     /////////////////////////////////////////////////////////////////////////////////////////////////
 
     // Create an OpenCL context
-    cl_context context = clCreateContext( NULL, 1, &device_id, NULL, NULL, &error);
+    
+     cl_context_properties context_properties[] =
+     { 
+          CL_CONTEXT_PLATFORM, 0,
+          CL_PRINTF_CALLBACK_ARM, (cl_context_properties)callback,
+          CL_PRINTF_BUFFERSIZE_ARM, 0x1000,
+          0
+     };
+
+    context_properties[1] = (cl_context_properties)platform_id[0];
+
+    #if USE_ARM
+        cl_context context = clCreateContext( context_properties, 1, &device_id, NULL, NULL, &error);
+    #else
+        cl_context context = clCreateContext( NULL, 1, &device_id, NULL, NULL, &error);
+    #endif
+    
     probe_error(error, (char*)"Error creating context\n");
 
     // Create a command queue
@@ -234,9 +284,27 @@ int main(int argc, char *argv[])
     cl_command_queue command_queue_read = clCreateCommandQueue(context, device_id, CL_QUEUE_PROFILING_ENABLE, &error);
     probe_error(error, (char*)"Error creating command queue\n");
 
-    // TODO: This should be an input parameter
-    const int frameWidth  = 1920; // 1920 or 3840
-    const int frameHeight = 1080; // 1080 or 2160
+    stringstream res(po_resolution);
+    vector<string> tokens;
+    char split_char = 'x';
+
+    for(string each; getline(res, each, split_char); tokens.push_back(each));
+    if(tokens.size() != 2){
+        cout << "  [!] ERROR: Input resolution \"" << po_resolution << "\" not set properly" << endl;
+        return 0;
+    }
+    
+    const int frameWidth  = stoi(tokens[0]); // 1920; // 1920 or 3840
+    const int frameHeight = stoi(tokens[1]); // 1080; // 1080 or 2160
+    const int nCtus = getNumCtus(frameWidth, frameHeight); // frameHeight==1080 ? 135 : 510; //135 or 510 for 1080p and 2160p  ||  1080p videos have 120 entire CTUs plus 15 partial CTUs || 4k videos have 480 entire CTUs plus 30 partial CTUs
+    if( nCtus == 0){
+        printf("[!] ERROR: Unsupported resolution %dx%d\n", frameWidth, frameHeight);
+        printf("Supported resolutions are:\n");
+        for(unsigned int i=0; i<availableRes.size(); i++){
+            printf("  %dx%d\n", get<0>(availableRes[i]), get<1>(availableRes[i]) );
+        }
+        return 0;
+    }
 
     const int itemsPerWG_obtainReducedBoundaries = 128;
     const int itemsPerWG_obtainReducedPrediction = 256;
@@ -246,11 +314,11 @@ int main(int argc, char *argv[])
     int nWG; // All CU sizes inside all CTUs are being processed simultaneously by distinct WGs
 
     // Read the input data
-    string refFrameFileName = argv[3];
+    string refFrameFileName = po_inputOrigFrames; // argv[3];
 
-    string outputFilePreffix = argv[4]; // Preffix of exported files containing the prediction signal
+    string outputFilePreffix = po_outputPreffix; // argv[4]; // Preffix of exported files containing the prediction signal
 
-    N_FRAMES = stoi(argv[5]);
+    N_FRAMES = po_nFrames; // stoi(argv[5]);
 
     ifstream refFile;
     refFile.open(refFrameFileName);
@@ -264,7 +332,29 @@ int main(int argc, char *argv[])
     string refLine, refVal, currLine, currVal;
 
     const int FRAME_SIZE = frameWidth*frameHeight;
-    const int nCTUs = frameHeight==1080 ? 135 : 510; //135 or 510 for 1080p and 2160p  ||  1080p videos have 120 entire CTUs plus 15 partial CTUs || 4k videos have 480 entire CTUs plus 30 partial CTUs
+    // const int nCTUs = frameHeight==1080 ? 135 : 510; //135 or 510 for 1080p and 2160p  ||  1080p videos have 120 entire CTUs plus 15 partial CTUs || 4k videos have 480 entire CTUs plus 30 partial CTUs
+    int nCTUs;
+    switch(frameHeight){
+        case 240:
+            nCTUs = 8;
+            break;
+        case 480:
+            nCTUs = 28;
+            break;
+        case 720:
+            nCTUs = 60;
+            break;
+        case 1080:
+            nCTUs = 135;
+            break;
+        case 2160:
+            nCTUs = 510;
+            break;
+        default:
+            printf("ERROR COMPUTING NUMBER OF CTUS\n");
+            return 0;
+    }
+
     const int NUM_PRED_MODES = PREDICTION_MODES_ID2;
     const int TEST_TRANSPOSED_MODES = 1;
     const int TOTAL_PREDICTION_MODES = NUM_PRED_MODES * (TEST_TRANSPOSED_MODES ? 2 : 1);
@@ -296,16 +386,22 @@ int main(int argc, char *argv[])
 
 
 #if USE_ALTERNATIVE_SAMPLES || PERFORM_CPU_FILTERING
-    int kernelIdx = 4;
+    int kernelIdx = po_kernelIdx ;
 #endif
 
 
 #if PERFORM_CPU_FILTERING
-    int maxThreads = 128;
-    int reportFilterResults = 1;
-    profileCpuFiltering(reference_frame, frameWidth, frameHeight, kernelIdx, maxThreads, reportFilterResults);
-#endif
+    int maxThreads = 256;
+    int reportFilterResults = 0;
+    
+    int kernelDim = 3;
+    profileCpuFiltering(reference_frame, frameWidth, frameHeight, kernelDim, kernelIdx, maxThreads, reportFilterResults);
 
+    kernelDim = 5;
+    profileCpuFiltering(reference_frame, frameWidth, frameHeight, kernelDim, kernelIdx, maxThreads, reportFilterResults);
+
+    // return 1;
+#endif
 
     // These buffers are used to store the reduced boundaries for all CU sizes
     error = 0;
@@ -519,7 +615,7 @@ int main(int argc, char *argv[])
     // Used to export the kernel results into proper files or the terminal
     string exportFileName;
 
-    int enableTerminalReport = 1;
+    int enableTerminalReport = 0;
     int reportReducedBoundaries = 1;
     int reportCompleteBoundaries = 1;
     int reportReducedPrediction = 1;
@@ -591,17 +687,22 @@ int main(int argc, char *argv[])
         //
         // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-        itemsPerWG = 256;
-        int nWG_Filter;
+        #if USE_ARM
+            itemsPerWG = 128;
+            int nWG_Filter = nCTUs*8; // Adjust based on the filtering kernel. nCTUs*2 or nCTUs*4
+        #else
+            itemsPerWG = 256;
+            int nWG_Filter = nCTUs*4; // Adjust based on the filtering kernel. nCTUs*2 or nCTUs*4
+        #endif
 
-        nWG_Filter = nCTUs*4; // Adjust based on the filtering kernel. nCTUs*2 or nCTUs*4
+        
 
         // Create kernel
         
         //                                    When using filterFrame_2d, int or float, nWG_Filter MUST BE nCTUs*2
         //                                       When using filterFrame_1d_float, nWG_Filter MUST BE nCTUs*4
         //                                                             |
-        kernel_filterFrames = clCreateKernel(program_sizeid2, "filterFrame_2d_float_quarterCtu", &error);
+        kernel_filterFrames = clCreateKernel(program_sizeid2, po_filterType.c_str(), &error);
         probe_error(error, (char*)"Error creating filterFrame kernel\n"); 
         printf("Performing filterFrame kernel...\n");
 
@@ -671,17 +772,19 @@ int main(int argc, char *argv[])
         printf("Read(ns): %f\n", readTime_filter);
         printf("TotalFilterTime(ms): %f\n", (writeTime_filter+executionTime_filter+readTime_filter)/1000000 );
 
-        printf("\n\nGPU FILTERED SAMPLES\n\n");
+        // printf("\n\nGPU FILTERED SAMPLES\n\n");
 
-        for(int h=0; h<frameHeight; h++){
-            for(int w=0; w<frameWidth; w++){
-                // reference_frame
-                // return_filteredFrame
-                printf("%hd,", return_filteredFrame[h*frameWidth+w]);
-            }
-            printf("\n");
-        }
+        // for(int h=0; h<frameHeight; h++){
+        //     for(int w=0; w<frameWidth; w++){
+        //         // reference_frame
+        //         // return_filteredFrame
+        //         printf("%hd,", return_filteredFrame[h*frameWidth+w]);
+        //     }
+        //     printf("\n");
+        // }
+#if ONLY_FILTER_AND_EXIT        
     return 1;
+#endif
 
 #endif
 
