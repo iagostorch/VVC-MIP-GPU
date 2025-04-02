@@ -7,8 +7,8 @@
 #define CL_TARGET_OPENCL_VERSION 120
 
 
-#define USE_ALTERNATIVE_SAMPLES 1
-#define PERFORM_CPU_FILTERING 1
+#define USE_ALTERNATIVE_SAMPLES 0
+#define PERFORM_CPU_FILTERING 0
 #define ONLY_FILTER_AND_EXIT 0
 
 #include <stdio.h>
@@ -66,19 +66,21 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    po_error = checkReportParameters(vm);
+    po_error = checkReportParameters(vm, USE_ALTERNATIVE_SAMPLES);
 
-    int isAvail = USE_ARM ? isFilterAvailable_arm(po_filterType) : isFilterAvailable(po_filterType);
+    #if USE_ALTERNATIVE_SAMPLES
+        int isAvail = USE_ARM ? isFilterAvailable_arm(po_filterType) : isFilterAvailable(po_filterType);
 
-    if( ! isAvail){
-        cout << "  [!] ERROR: Filter type " << po_filterType << " not supported" << endl;
-        exit(0);
-    }
+        if( ! isAvail){
+            cout << "  [!] ERROR: Filter type " << po_filterType << " not supported" << endl;
+            exit(0);
+        }
 
-    if(po_error > 0){
-        cout << "Exiting after finding errors in input parameters" << endl;
-        return 1;
-    }
+        if(po_error > 0){
+            cout << "Exiting after finding errors in input parameters" << endl;
+            return 1;
+        }
+    #endif
 
 
 
@@ -620,7 +622,7 @@ int main(int argc, char *argv[])
     int reportCompleteBoundaries = 1;
     int reportReducedPrediction = 1;
     int reportDistortion = 1;
-    int reportDistortionOnlyTarget = 1;
+    int reportDistortionOnlyTarget = 0;
 
     int reportDistortionToFile = 1;
     int targetCTU = 16;

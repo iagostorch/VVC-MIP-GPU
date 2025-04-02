@@ -110,7 +110,7 @@ struct tm *timeStruct;
 
 int timeDifference; // in miliseconds
 
-int checkReportParameters(po::variables_map vm){
+int checkReportParameters(po::variables_map vm, int ALTERNATIVE_SAMPLES){
     int errors = 0;
     
     cout << "-=-= INPUT PARAMETERS =-=-" << endl;
@@ -141,22 +141,23 @@ int checkReportParameters(po::variables_map vm){
         cout << "  [!] ERROR: Input original frames not set." << endl;
         errors++;
     }
-    if ( ! vm["FilterType"].empty() ){
-        cout << "  FilterType=" << vm["FilterType"].as<string>() << endl;
-    }
-    else{
-        cout << "  [!] ERROR: Filter not set." << endl;
-        errors++;
-    }
+    if(USE_ALTERNATIVE_SAMPLES){
+        if ( ! vm["FilterType"].empty() ){
+            cout << "  FilterType=" << vm["FilterType"].as<string>() << endl;
+        }
+        else{
+            cout << "  [!] ERROR: Filter not set." << endl;
+            errors++;
+        }
 
-    if(vm["KernelIdx"].defaulted() ){
-        cout << "  KernelIdx not set. Using default value zero." << endl;
+        if(vm["KernelIdx"].defaulted() ){
+            cout << "  KernelIdx not set. Using default value zero." << endl;
+        }
+        else{
+            cout << "  KernelIdx=" << vm["KernelIdx"].as<int>() <<  endl;
+        }
     }
-    else{
-        cout << "  KernelIdx=" << vm["KernelIdx"].as<int>() <<  endl;
-    }
-
-
+    
     return errors;
 }
 
